@@ -26,7 +26,7 @@ const CAT_TTL = 7 * 24 * 60 * 60;
 const ANGLE_TTL = 3 * 24 * 60 * 60;
 const MIN_QUOTA = 1400; // one live run costs about 1,300 of the shared 6,250 points
 
-const KEY = {
+export const KEY = {
   fresh: "ps:v1:pool:fresh",
   last: "ps:v1:pool:last",
   lock: "ps:v1:lock",

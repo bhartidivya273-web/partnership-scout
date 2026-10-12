@@ -1,7 +1,7 @@
 "use client";
 
 // The one interactive part of the page: controls, honest progress, status line and ranked rows.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CATEGORY_KEYS, type CategoryKey } from "@/lib/categories";
 import { bannerSaved, CATEGORY_CHIP_LABELS, COPY, statusLine } from "@/lib/copy";
 import {
@@ -37,6 +37,8 @@ export default function Scout() {
   const [elapsed, setElapsed] = useState(0);
   const [sort, setSort] = useState<SortMode>("score");
   const running = view.kind === "loading";
+  // A ref (not state) so a second click in the same instant is ignored before the page redraws.
+  const busy = useRef(false);
 
   // One generic timer rather than invented steps: the step text only changes when the server says so.
   useEffect(() => {
@@ -49,7 +51,8 @@ export default function Scout() {
   const toggle = (k: CategoryKey) => setSelected((cur) => (cur.includes(k) ? cur.filter((c) => c !== k) : [...cur, k]));
 
   async function run() {
-    if (running || selected.length === 0) return;
+    if (busy.current || selected.length === 0) return;
+    busy.current = true;
     setElapsed(0);
     setSort("score");
     setView({ kind: "loading", step: null });
@@ -84,6 +87,8 @@ export default function Scout() {
       if (!finished) throw new Error("stream ended early");
     } catch {
       setView({ kind: "error", message: COPY.ERR_GENERIC });
+    } finally {
+      busy.current = false;
     }
   }
 
