@@ -191,14 +191,18 @@ export async function runScout(
 
   // ----- keep the real result: the cache for a few minutes, the saved copy until the next live run
   if (source === "live") {
+    // Only Gemini's own answers are kept as seeds. Fallback guesses (topic tags, templates) are
+    // recomputed on demand, so the next visitor retries Gemini instead of inheriting a weak result.
     const full: Bundle = {
       ...bundle,
-      classifications: Object.fromEntries(classif),
+      classifications: Object.fromEntries([...classif].filter(([, c]) => c.source === "gemini")),
       productText,
-      angles: Object.fromEntries(top.map((p) => [p.id, angles.get(p.id)!])),
+      angles: Object.fromEntries(top.flatMap((p) => (angles.get(p.id)?.angleSource === "gemini" ? [[p.id, angles.get(p.id)!]] : []))),
     };
-    await s.set(KEY.fresh, full, bundle.partial ? PARTIAL_TTL : FRESH_TTL);
-    if (!bundle.partial) await s.set(KEY.last, full);
+    const degraded = notes.has("category_topic") || top.some((p) => angles.get(p.id)?.angleSource === "template");
+    await s.set(KEY.fresh, full, bundle.partial || degraded ? PARTIAL_TTL : FRESH_TTL);
+    // A weaker run never replaces a good saved result; it is only saved if nothing is saved yet.
+    if (!bundle.partial && (!degraded || !isBundle(await s.get<Bundle>(KEY.last)))) await s.set(KEY.last, full);
   }
   if (bundle.partial) notes.add("partial");
 

@@ -298,3 +298,43 @@ describe("pipeline: what reaches the browser", () => {
     expect(r.items[0].daysLeft).toBe(6);
   });
 });
+
+describe("pipeline: a weak run never replaces a good saved result", () => {
+  it("a run where Gemini failed keeps the earlier good saved result untouched", async () => {
+    const good = setup();
+    await run(good.deps);
+    const goodLast = await good.store.get<Bundle>("ps:v1:pool:last");
+    // A new, empty store that only holds the earlier saved result (no category or angle cache).
+    const store = createMemoryStore();
+    await store.set("ps:v1:pool:last", goodLast);
+    const weak = await run({ ...good.deps, store, gen: fakeGemini({ failClassify: true, failAngles: true }).gen });
+    expect(weak.source).toBe("live");
+    expect(weak.notes).toContain("category_topic");
+    expect(weak.run.angleMethod).toBe("template");
+    expect(await store.get("ps:v1:pool:last")).toEqual(goodLast);
+  });
+
+  it("with nothing saved yet, a weak run is still saved (real data beats nothing)", async () => {
+    const { deps, store } = setup({}, fakePH(60), fakeGemini({ failClassify: true, failAngles: true }));
+    await run(deps);
+    expect(await store.get("ps:v1:pool:last")).not.toBeNull();
+  });
+
+  it("fallback guesses are not kept as seeds, so the next visitor retries Gemini", async () => {
+    const { deps, store } = setup({}, fakePH(60), fakeGemini({ failClassify: true, failAngles: true }));
+    await run(deps);
+    const saved = await store.get<Bundle>("ps:v1:pool:last");
+    expect(saved?.classifications).toEqual({});
+    expect(saved?.angles).toEqual({});
+  });
+
+  it("a degraded cached pool is retried quickly: the next run asks Gemini again", async () => {
+    const down = fakeGemini({ failClassify: true, failAngles: true });
+    const { deps, store } = setup({}, fakePH(60), down);
+    await run(deps);
+    const up = fakeGemini();
+    const r = await run({ ...deps, gen: up.gen, store });
+    expect(up.calls.classify).toBeGreaterThan(0); // seeds did not freeze the weak answers
+    expect(r.run.categoryMethod).toBe("ai");
+  });
+});
