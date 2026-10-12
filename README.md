@@ -40,6 +40,7 @@ npm run dev                  # http://localhost:3000
 | `npm test` | all automated tests (about 170) |
 | `npm run check` | type check, lint, tests and production build; stops at the first failure |
 | `npm run build && npm start` | production build, then run it |
+| `npx vitest run -c vitest.live.config.mts scripts/store.live.ts` | check the Supabase store against the real database (values, expiry, one-winner lock) |
 | `npx vitest run -c vitest.live.config.mts scripts/snapshot.live.ts` | run the full pipeline once on **real** data and save `data/last-good-snapshot.json` |
 | `REVIEW_DIR=/some/folder npx vitest run -c vitest.live.config.mts scripts/review.live.ts` | print category labels and angles on real data for review |
 
