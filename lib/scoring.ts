@@ -15,7 +15,8 @@ export type Score = {
   weights: Weights;
 };
 
-export type RankedProduct = Product & { rank: number; score: Score };
+export type Ranked<T extends Product = Product> = T & { rank: number; score: Score };
+export type RankedProduct = Ranked;
 
 export const DEFAULT_WEIGHTS: Weights = { votes: 0.5, maker: 0.5 };
 
@@ -44,7 +45,7 @@ const tenths = (score: number) => Math.round(score * 10);
  * Ties are decided on the one-decimal score the user sees, then more maker comments, then more
  * votes, then the newer launch, so the order is always explainable from what is on screen.
  */
-export function rankPool(pool: Product[], weights: Weights = DEFAULT_WEIGHTS): RankedProduct[] {
+export function rankPool<T extends Product>(pool: T[], weights: Weights = DEFAULT_WEIGHTS): Ranked<T>[] {
   const w = normaliseWeights(weights);
   const maxVotes = pool.reduce((m, p) => Math.max(m, clean(p.upvotes)), 0);
   const maxMaker = pool.reduce((m, p) => Math.max(m, clean(p.makerComments)), 0);

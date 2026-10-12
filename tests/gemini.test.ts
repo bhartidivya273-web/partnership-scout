@@ -60,7 +60,7 @@ describe("Gemini client", () => {
     [500, "other"],
   ])("maps HTTP %i to %s without leaking the key", async (status, kind) => {
     const fetchImpl = (async () => new Response(`key ${KEY} bad`, { status })) as unknown as typeof fetch;
-    const err = await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e as GeminiError);
+    const err = (await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e)) as GeminiError;
     expect(err).toBeInstanceOf(GeminiError);
     expect(err.kind).toBe(kind);
     expect(err.message).not.toContain(KEY);
@@ -68,7 +68,7 @@ describe("Gemini client", () => {
 
   it("reports invalid JSON as a format error", async () => {
     const fetchImpl = (async () => answer("not json")) as unknown as typeof fetch;
-    const err = await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e as GeminiError);
+    const err = (await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e)) as GeminiError;
     expect(err.kind).toBe("format");
   });
 
@@ -76,7 +76,7 @@ describe("Gemini client", () => {
     const fetchImpl = (async () => {
       throw new Error(`connect failed for ${KEY}`);
     }) as unknown as typeof fetch;
-    const err = await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e as GeminiError);
+    const err = (await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e)) as GeminiError;
     expect(err.kind).toBe("other");
     expect(err.message).not.toContain(KEY);
   });
