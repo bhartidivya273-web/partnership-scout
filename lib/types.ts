@@ -21,3 +21,12 @@ export type Product = {
   topics: string[];
   flags: Array<"maker_comments_missing" | "founder_hidden">;
 };
+
+import type { CategoryKey } from "./categories";
+
+/** A product after category sorting. `categorySource` says whether Gemini or the topic table decided. */
+export type ClassifiedProduct = Product & {
+  categories: CategoryKey[];
+  categorySource: "gemini" | "topic";
+  categoryReason: string | null;
+};
