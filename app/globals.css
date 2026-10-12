@@ -500,3 +500,237 @@ footer {
     width: 100%;
   }
 }
+
+/* ---------- v2 layout: overview, fit groups, compact cards ---------- */
+h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.summary {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.summary h2 {
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.summary ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+}
+
+.pill strong {
+  font-size: 1.1rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.sortbar .note {
+  flex-basis: 100%;
+  font-size: 0.9rem;
+}
+
+.group {
+  margin: 18px 0 8px;
+}
+
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+}
+
+details.group > summary.group-head {
+  cursor: pointer;
+  list-style-position: outside;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+
+details.group[open] > summary.group-head {
+  margin-bottom: 10px;
+}
+
+.group-title {
+  font-weight: 700;
+  padding: 2px 12px;
+  border-radius: 999px;
+}
+
+.group-title .count {
+  font-weight: 600;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+.group-note {
+  font-size: 0.92rem;
+  font-weight: 400;
+}
+
+.fit-none {
+  background: var(--grey-bg);
+  color: var(--grey);
+}
+
+/* compact card: what to say comes before the numbers */
+.row {
+  padding: 14px 16px;
+}
+
+.row-head {
+  margin-bottom: 2px;
+}
+
+.row-head .badge.closing {
+  margin-left: 0;
+}
+
+.score strong {
+  font-size: 1.35rem;
+}
+
+.tagline {
+  margin-bottom: 4px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-bottom: 10px;
+}
+
+.angle-text {
+  font-size: 1.02rem;
+}
+
+.copy {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 10px 0 6px;
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.stats dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.stats .warn {
+  color: var(--warn);
+}
+
+.row-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+
+.row-foot .links {
+  display: flex;
+  gap: 16px;
+}
+
+.row-foot .breakdown {
+  margin-top: 0;
+}
+
+@media (max-width: 700px) {
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* tighter controls so results start higher on the first screen */
+.panel {
+  padding: 16px 18px;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.chip {
+  min-height: 40px;
+  padding: 6px 14px;
+}
+
+.help {
+  margin-top: 4px;
+}
+
+.pill.closing {
+  margin-left: 0;
+}
+
+.status {
+  padding: 12px 16px;
+}
+
+.status p:last-child {
+  margin-bottom: 0;
+}
+
+.summary {
+  padding: 12px 16px;
+}

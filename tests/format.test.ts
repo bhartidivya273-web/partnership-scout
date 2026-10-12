@@ -68,3 +68,27 @@ describe("stream line parser", () => {
     expect(lines).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
   });
 });
+
+import { groupByFit, summaryCounts } from "@/lib/format";
+
+describe("grouping by fit", () => {
+  const rows = [
+    { id: "a", rank: 1, fit: "weak" as const, daysLeft: 1 },
+    { id: "b", rank: 2, fit: "strong" as const, daysLeft: 5 },
+    { id: "c", rank: 3, fit: null, daysLeft: 6 },
+    { id: "d", rank: 4, fit: "strong" as const, daysLeft: 2 },
+  ];
+  it("puts strong first, then partial, weak, unrated, and skips empty groups", () => {
+    expect(groupByFit(rows).map((g) => [g.fit, g.rows.map((r) => r.id)])).toEqual([
+      ["strong", ["b", "d"]],
+      ["weak", ["a"]],
+      [null, ["c"]],
+    ]);
+  });
+  it("keeps the order it was given inside each group (so sorting still applies)", () => {
+    expect(groupByFit([rows[3], rows[1]])[0].rows.map((r) => r.id)).toEqual(["d", "b"]);
+  });
+  it("counts fits and closing-soon windows for the summary", () => {
+    expect(summaryCounts(rows)).toEqual({ strong: 2, partial: 0, weak: 1, unrated: 1, closing: 2 });
+  });
+});

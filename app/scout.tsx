@@ -11,6 +11,9 @@ import {
   formatDate,
   formatDateTime,
   formatInt,
+  groupByFit,
+  summaryCounts,
+  type FitKey,
   isClosingSoon,
   launchedText,
   minutesAgo,
@@ -36,6 +39,7 @@ export default function Scout() {
   const [view, setView] = useState<View>({ kind: "idle" });
   const [elapsed, setElapsed] = useState(0);
   const [sort, setSort] = useState<SortMode>("score");
+  const [grouped, setGrouped] = useState(true);
   const running = view.kind === "loading";
   // A ref (not state) so a second click in the same instant is ignored before the page redraws.
   const busy = useRef(false);
@@ -112,7 +116,7 @@ export default function Scout() {
           <label className="label" htmlFor="product">
             {COPY.PRODUCT_LABEL}
           </label>
-          <textarea id="product" rows={2} maxLength={300} value={productText} onChange={(e) => setProductText(e.target.value)} disabled={running} />
+          <textarea id="product" rows={1} maxLength={300} value={productText} onChange={(e) => setProductText(e.target.value)} disabled={running} />
           <p className="help">{COPY.PRODUCT_HELP}</p>
         </div>
 
@@ -156,23 +160,7 @@ export default function Scout() {
         {view.kind === "done" && view.result.items.length === 0 && <p className="empty">{COPY.EMPTY_RESULTS}</p>}
 
         {view.kind === "done" && view.result.items.length > 0 && (
-          <>
-            <div className="sortbar">
-              <label htmlFor="sort">{COPY.SORT_LABEL}</label>
-              <select id="sort" value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
-                <option value="score">{COPY.SORT_SCORE}</option>
-                <option value="closing">{COPY.SORT_CLOSING}</option>
-                <option value="newest">{COPY.SORT_NEWEST}</option>
-              </select>
-              <span className="muted">{COPY.SORT_NOTE}</span>
-            </div>
-            <ol className="rows">
-              {sortRows(view.result.items, sort).map((item) => (
-                <Row key={item.id} item={item} weights={view.result.weights} />
-              ))}
-            </ol>
-            <RunDetails result={view.result} />
-          </>
+          <Results result={view.result} sort={sort} setSort={setSort} grouped={grouped} setGrouped={setGrouped} />
         )}
       </div>
     </>
@@ -213,47 +201,186 @@ function Status({ result }: { result: ScoutResult }) {
   );
 }
 
+const GROUP_TEXT: Record<"strong" | "partial" | "weak" | "none", { title: string; note: string }> = {
+  strong: { title: COPY.FIT_STRONG, note: COPY.GROUP_STRONG_NOTE },
+  partial: { title: COPY.FIT_PARTIAL, note: COPY.GROUP_PARTIAL_NOTE },
+  weak: { title: COPY.FIT_WEAK, note: COPY.GROUP_WEAK_NOTE },
+  none: { title: COPY.GROUP_NONE, note: COPY.GROUP_NONE_NOTE },
+};
+
+function Results(props: {
+  result: ScoutResult;
+  sort: SortMode;
+  setSort: (s: SortMode) => void;
+  grouped: boolean;
+  setGrouped: (g: boolean) => void;
+}) {
+  const { result, sort, setSort, grouped, setGrouped } = props;
+  const rows = sortRows(result.items, sort);
+  const c = summaryCounts(result.items);
+  const list = (items: ResultItem[]) => (
+    <ol className="rows">
+      {items.map((item) => (
+        <Row key={item.id} item={item} weights={result.weights} />
+      ))}
+    </ol>
+  );
+  return (
+    <>
+      <section className="summary" aria-label={COPY.SUMMARY_TITLE}>
+        <h2>{COPY.SUMMARY_TITLE}</h2>
+        <ul>
+          <li className="pill fit-strong">
+            <strong>{c.strong}</strong> {COPY.FIT_STRONG.toLowerCase()}
+          </li>
+          <li className="pill fit-partial">
+            <strong>{c.partial}</strong> {COPY.FIT_PARTIAL.toLowerCase()}
+          </li>
+          <li className="pill fit-weak">
+            <strong>{c.weak}</strong> {COPY.FIT_WEAK.toLowerCase()}
+          </li>
+          {c.unrated > 0 && (
+            <li className="pill fit-weak">
+              <strong>{c.unrated}</strong> not rated
+            </li>
+          )}
+          <li className="pill closing">
+            <strong>{c.closing}</strong> closing soon
+          </li>
+        </ul>
+      </section>
+
+      <div className="sortbar">
+        <label htmlFor="sort">{COPY.SORT_LABEL}</label>
+        <select id="sort" value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
+          <option value="score">{COPY.SORT_SCORE}</option>
+          <option value="closing">{COPY.SORT_CLOSING}</option>
+          <option value="newest">{COPY.SORT_NEWEST}</option>
+        </select>
+        <label className="toggle">
+          <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} /> {COPY.GROUP_LABEL}
+        </label>
+        <span className="muted note">{COPY.SORT_NOTE}</span>
+      </div>
+
+      {!grouped && list(rows)}
+      {grouped &&
+        groupByFit(rows).map((g) => {
+          const key = g.fit ?? "none";
+          const text = GROUP_TEXT[key];
+          const head = (
+            <>
+              <span className={`group-title fit-${key}`}>
+                {text.title} <span className="count">{g.rows.length}</span>
+              </span>
+              <span className="muted group-note">{text.note}</span>
+            </>
+          );
+          // Weak fits stay counted but folded away, so the page leads with the contacts worth making.
+          return key === "weak" ? (
+            <details key={key} className="group">
+              <summary className="group-head">{head}</summary>
+              {list(g.rows)}
+            </details>
+          ) : (
+            <section key={key} className="group">
+              <h2 className="group-head">{head}</h2>
+              {list(g.rows)}
+            </section>
+          );
+        })}
+      <RunDetails result={result} />
+    </>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      // Some browsers block the modern clipboard; the older copy command still works there.
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      ok = document.execCommand("copy");
+      area.remove();
+    }
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+  return (
+    <button type="button" className="copy" onClick={copy} aria-live="polite">
+      {copied ? COPY.BTN_COPIED : COPY.BTN_COPY}
+    </button>
+  );
+}
+
 function Row({ item, weights }: { item: ResultItem; weights: { votes: number; maker: number } }) {
   const closing = isClosingSoon(item.daysLeft);
   const parts = breakdownParts(item.score, weights);
   const hidden = item.founder.hiddenCount;
+  const fit: FitKey = item.fit;
   const founderTip =
     item.founder.founderSource === "none" ? COPY.FOUNDER_TIP_NONE : hidden > 0 ? `${hidden} of the makers are hidden by Product Hunt.` : undefined;
   return (
     <li className={`row${closing ? " row-closing" : ""}`}>
       <div className="row-head">
-        <span className="rank">#{item.rank}</span>
+        <span className="rank" title="Rank by score">
+          #{item.rank}
+        </span>
         <h3 className="name">
           <a href={item.productHuntUrl} target="_blank" rel="noopener noreferrer">
             {item.name}
           </a>
         </h3>
-        {item.fit && (
-          <span className={`badge fit-${item.fit}`} title={COPY.FIT_TIP}>
-            {FIT_TEXT[item.fit]}
+        {fit && (
+          <span className={`badge fit-${fit}`} title={COPY.FIT_TIP}>
+            {FIT_TEXT[fit]}
           </span>
         )}
+        {closing && <span className="badge closing">{COPY.BADGE_CLOSING}</span>}
         <span className="score">
-          Score <strong>{oneDecimal(item.score.total)}</strong> / 100
+          <strong>{oneDecimal(item.score.total)}</strong>
+          <span className="muted"> / 100</span>
         </span>
       </div>
 
-      <p className="founder" title={founderTip}>
-        {item.founder.founderSource === "none" ? COPY.FOUNDER_NONE : `Founder: ${item.founder.label}`}
-      </p>
+      <p className="tagline">{item.tagline.trim() || COPY.NO_DESCRIPTION}</p>
 
-      <div className="tags">
+      <p className="meta">
+        <span className="founder" title={founderTip}>
+          {item.founder.founderSource === "none" ? COPY.FOUNDER_NONE : `Founder: ${item.founder.label}`}
+        </span>
         {item.categories.map((c) => (
           <span key={c} className="tag">
             {CATEGORY_CHIP_LABELS[c]}
           </span>
         ))}
         {item.categorySource === "topic" && <span className="tag tag-note">{COPY.CAT_SOURCE_TOPIC}</span>}
+      </p>
+
+      <div className="angle">
+        <p className="angle-head">
+          <strong>{COPY.ANGLE_LABEL}</strong>
+          <span className={`badge ${item.angleSource === "gemini" ? "ai" : "template"}`}>
+            {item.angleSource === "gemini" ? COPY.BADGE_AI : COPY.BADGE_TEMPLATE}
+          </span>
+          <CopyButton text={item.angle} />
+        </p>
+        <p className="angle-text">{item.angle}</p>
       </div>
 
-      <p className="tagline">{item.tagline.trim() || COPY.NO_DESCRIPTION}</p>
-
-      <dl className="metrics">
+      <dl className="stats">
         <div title={COPY.METRIC_VOTES_TIP}>
           <dt>{COPY.METRIC_VOTES}</dt>
           <dd>{formatInt(item.upvotes)}</dd>
@@ -268,41 +395,29 @@ function Row({ item, weights }: { item: ResultItem; weights: { votes: number; ma
         </div>
         <div>
           <dt>Outreach window</dt>
-          <dd>
-            {closesText(item.daysLeft)}
-            {closing && <span className="badge closing">{COPY.BADGE_CLOSING}</span>}
-          </dd>
+          <dd className={closing ? "warn" : undefined}>{closesText(item.daysLeft)}</dd>
         </div>
       </dl>
 
-      <p className="links">
-        <a href={item.productHuntUrl} target="_blank" rel="noopener noreferrer">
-          {COPY.LINK_PH}
-        </a>
-        {item.websiteUrl && (
-          <a href={item.websiteUrl} target="_blank" rel="noopener noreferrer">
-            {COPY.LINK_SITE}
+      <div className="row-foot">
+        <span className="links">
+          <a href={item.productHuntUrl} target="_blank" rel="noopener noreferrer">
+            {COPY.LINK_PH}
           </a>
-        )}
-      </p>
-
-      <div className="angle">
-        <p className="angle-head">
-          <strong>{COPY.ANGLE_LABEL}</strong>
-          <span className={`badge ${item.angleSource === "gemini" ? "ai" : "template"}`}>
-            {item.angleSource === "gemini" ? COPY.BADGE_AI : COPY.BADGE_TEMPLATE}
-          </span>
-        </p>
-        <p>{item.angle}</p>
+          {item.websiteUrl && (
+            <a href={item.websiteUrl} target="_blank" rel="noopener noreferrer">
+              {COPY.LINK_SITE}
+            </a>
+          )}
+        </span>
+        <details className="breakdown">
+          <summary>{COPY.BREAKDOWN_TITLE}</summary>
+          <p>
+            Votes part {oneDecimal(parts.votes)}, maker-comments part {oneDecimal(parts.maker)}, weights {Math.round(weights.votes * 100)}/
+            {Math.round(weights.maker * 100)}. Scores are relative to this week&apos;s pool, so compare ranks, not scores from different runs.
+          </p>
+        </details>
       </div>
-
-      <details className="breakdown">
-        <summary>{COPY.BREAKDOWN_TITLE}</summary>
-        <p>
-          Votes part {oneDecimal(parts.votes)}, maker-comments part {oneDecimal(parts.maker)}, weights {Math.round(weights.votes * 100)}/
-          {Math.round(weights.maker * 100)}. Scores are relative to this week&apos;s pool, so compare ranks, not scores from different runs.
-        </p>
-      </details>
     </li>
   );
 }

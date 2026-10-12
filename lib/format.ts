@@ -51,3 +51,22 @@ export function createLineParser(onLine: (line: string) => void) {
     },
   };
 }
+
+export type FitKey = "strong" | "partial" | "weak" | null;
+const FIT_ORDER: FitKey[] = ["strong", "partial", "weak", null];
+
+/** Bunches rows by fit (strong first), keeping the chosen order inside each bunch; empty bunches are left out. */
+export function groupByFit<T extends { fit: FitKey }>(rows: T[]): Array<{ fit: FitKey; rows: T[] }> {
+  return FIT_ORDER.map((fit) => ({ fit, rows: rows.filter((r) => r.fit === fit) })).filter((g) => g.rows.length > 0);
+}
+
+/** The one-line overview: how many of each fit, and how many windows close within 2 days. */
+export function summaryCounts(rows: Array<{ fit: FitKey; daysLeft: number }>) {
+  return {
+    strong: rows.filter((r) => r.fit === "strong").length,
+    partial: rows.filter((r) => r.fit === "partial").length,
+    weak: rows.filter((r) => r.fit === "weak").length,
+    unrated: rows.filter((r) => r.fit === null).length,
+    closing: rows.filter((r) => isClosingSoon(r.daysLeft)).length,
+  };
+}
