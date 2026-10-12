@@ -319,7 +319,7 @@ function RunDetails({ result }: { result: ScoutResult }) {
     ["Product Hunt quota remaining", r.quotaRemaining === null ? "unknown" : formatInt(r.quotaRemaining)],
     ["Result source", result.source],
     ["Model used", r.model],
-    ["Storage", r.store === "redis" ? "Shared (Redis)" : "Server memory"],
+    ["Storage", r.store === "supabase" ? "Shared (Supabase)" : "Server memory"],
   ];
   return (
     <details className="run-details">

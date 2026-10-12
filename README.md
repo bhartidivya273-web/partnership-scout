@@ -43,6 +43,8 @@ npm run dev                  # http://localhost:3000
 | `npx vitest run -c vitest.live.config.mts scripts/snapshot.live.ts` | run the full pipeline once on **real** data and save `data/last-good-snapshot.json` |
 | `REVIEW_DIR=/some/folder npx vitest run -c vitest.live.config.mts scripts/review.live.ts` | print category labels and angles on real data for review |
 
+Shared storage is optional locally. For production, run `supabase/schema.sql` once in a Supabase project and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` on the server (Vercel's Supabase integration can do this). Without them the app falls back to server memory and says so in "Run details".
+
 Settings are in `.env.example` (names only). Keys live only in `.env.local` and in Vercel's project settings; they are never sent to the browser.
 
 ## Code layout (`lib/`)
@@ -54,7 +56,7 @@ Settings are in `.env.example` (names only). Keys live only in `.env.local` and 
 | `founder.ts` | first visible maker, "+N more", "Founder not listed"; never shows `[REDACTED]` |
 | `scoring.ts` | the score and ranking (pure functions) |
 | `gemini.ts`, `prompts.ts`, `validate.ts`, `classify.ts`, `angles.ts` | Gemini calls, prompts, output checks, category sorting, angles and templates |
-| `store.ts`, `bundle.ts`, `scout.ts` | shared cache, saved result, lock, quota guard and the pipeline |
+| `store.ts`, `bundle.ts`, `scout.ts` | shared cache (Supabase, memory fallback), saved result, lock, quota guard and the pipeline |
 | `app/api/scout/route.ts` | the endpoint: streams real progress steps, then the result |
 | `app/scout.tsx` | the page |
 

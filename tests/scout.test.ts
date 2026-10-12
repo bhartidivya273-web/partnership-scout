@@ -192,7 +192,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   });
 
   it("storage failure does not take the page down: it still goes live", async () => {
-    const broken: Store = { ...createMemoryStore(), kind: "redis" };
+    const broken: Store = { ...createMemoryStore(), kind: "supabase" };
     for (const k of ["get", "set", "del", "setNX", "mget", "mset"] as const) (broken as Record<string, unknown>)[k] = async () => { throw new Error("down"); };
     const { deps } = setup({ store: broken });
     const r = await run(deps);

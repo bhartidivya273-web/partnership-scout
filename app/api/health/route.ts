@@ -8,7 +8,7 @@ import { GeminiError, makeGemini } from "@/lib/gemini";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const NAMES = ["PRODUCT_HUNT_TOKEN", "GEMINI_API_KEY", "GEMINI_MODEL"] as const;
+const NAMES = ["PRODUCT_HUNT_TOKEN", "GEMINI_API_KEY", "GEMINI_MODEL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
 
 export const checkKey = (token: string) => createHash("sha256").update(token).digest("hex").slice(0, 16);
 

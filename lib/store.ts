@@ -1,9 +1,9 @@
 // Shared storage for the cache, the saved last real result and the refresh lock.
-// Production uses Upstash Redis (Vercel Marketplace) over its plain HTTPS interface, so there is no
-// extra package. Without Redis settings the app falls back to memory, which still works but is only
-// shared inside one server instance, so the page says "memory" in the run details.
+// Production uses one small Supabase table (scout_cache) through Supabase's built-in web interface,
+// so there is no extra package. Without Supabase settings the app falls back to memory, which still
+// works but is only shared inside one server instance, so the page says "memory" in the run details.
 export type Store = {
-  kind: "redis" | "memory";
+  kind: "supabase" | "memory";
   get<T>(key: string): Promise<T | null>;
   set(key: string, value: unknown, ttlSeconds?: number): Promise<void>;
   del(key: string): Promise<void>;
@@ -61,63 +61,85 @@ export function createMemoryStore(now: () => number = Date.now): Store {
   };
 }
 
-type Redis = { url: string; token: string; fetchImpl?: typeof fetch };
+type Supabase = { url: string; serviceKey: string; fetchImpl?: typeof fetch; now?: () => number };
 
-export function createRedisStore({ url, token, fetchImpl = fetch }: Redis): Store {
-  const base = url.replace(/\/+$/, "");
-  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+const TABLE = "scout_cache";
 
-  async function post(path: string, body: unknown): Promise<unknown> {
-    const res = await fetchImpl(`${base}${path}`, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" });
-    if (!res.ok) throw new Error(`Storage answered with status ${res.status}.`); // never echo the URL or token
-    return res.json();
+/**
+ * The shared store, as one table: key (text, primary key), value (jsonb), expires_at (nullable).
+ * The server-side service key is used, so the table is closed to everyone else (row level security
+ * with no policies); the key never leaves the server.
+ */
+export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch, now = Date.now }: Supabase): Store {
+  const endpoint = `${url.replace(/\/+$/, "")}/rest/v1/${TABLE}`;
+  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" };
+
+  async function call(query: string, init: { method: string; prefer?: string; body?: unknown }): Promise<unknown> {
+    const res = await fetchImpl(`${endpoint}${query}`, {
+      method: init.method,
+      headers: init.prefer ? { ...headers, Prefer: init.prefer } : headers,
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Storage answered with status ${res.status}.`); // never echo the address or key
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   }
-  const command = async (args: Array<string | number>) => {
-    const out = (await post("", args)) as { result?: unknown; error?: string };
-    if (out.error) throw new Error("Storage rejected a command.");
-    return out.result;
-  };
-  const pipeline = async (commands: Array<Array<string | number>>) => {
-    const out = (await post("/pipeline", commands)) as Array<{ result?: unknown; error?: string }>;
-    if (out.some((o) => o.error)) throw new Error("Storage rejected a command.");
-    return out.map((o) => o.result);
-  };
+
+  type Row = { key: string; value: unknown; expires_at: string | null };
+  const live = (r: Row | undefined): unknown => (r && (!r.expires_at || Date.parse(r.expires_at) > now()) ? r.value : null);
+  const row = (key: string, value: unknown, ttl?: number): Row => ({
+    key,
+    value,
+    expires_at: ttl ? new Date(now() + ttl * 1000).toISOString() : null,
+  });
+  const upsert = (rows: Row[]) => call("?on_conflict=key", { method: "POST", prefer: "resolution=merge-duplicates", body: rows });
 
   return {
-    kind: "redis",
+    kind: "supabase",
     async get<T>(key: string) {
-      return parse<T>(await command(["GET", key]));
+      const rows = (await call(`?key=eq.${encodeURIComponent(key)}&select=key,value,expires_at`, { method: "GET" })) as Row[];
+      return live(rows[0]) as T | null;
     },
     async set(key, value, ttl) {
-      await command(ttl ? ["SET", key, JSON.stringify(value), "EX", ttl] : ["SET", key, JSON.stringify(value)]);
+      await upsert([row(key, value, ttl)]);
     },
     async del(key) {
-      await command(["DEL", key]);
+      await call(`?key=eq.${encodeURIComponent(key)}`, { method: "DELETE" });
     },
     async setNX(key, value, ttl) {
-      return (await command(["SET", key, JSON.stringify(value), "EX", ttl, "NX"])) === "OK";
+      // Clear the lock if it has expired, then try to insert it: the primary key lets exactly one caller win.
+      await call(`?key=eq.${encodeURIComponent(key)}&expires_at=lt.${encodeURIComponent(new Date(now()).toISOString())}`, { method: "DELETE" });
+      const made = (await call("?on_conflict=key", {
+        method: "POST",
+        prefer: "resolution=ignore-duplicates,return=representation",
+        body: [row(key, value, ttl)],
+      })) as Row[] | null;
+      return Array.isArray(made) && made.length === 1;
     },
     async mget<T>(keys: string[]) {
       if (keys.length === 0) return [];
-      const out = (await command(["MGET", ...keys])) as unknown[];
-      return out.map((v) => parse<T>(v));
+      const list = keys.map((k) => `"${k.replace(/"/g, "")}"`).join(",");
+      const rows = (await call(`?key=in.(${encodeURIComponent(list)})&select=key,value,expires_at`, { method: "GET" })) as Row[];
+      const byKey = new Map(rows.map((r) => [r.key, r]));
+      return keys.map((k) => live(byKey.get(k)) as T | null);
     },
     async mset(entries, ttl) {
       if (entries.length === 0) return;
-      await pipeline(entries.map(([k, v]) => ["SET", k, JSON.stringify(v), "EX", ttl]));
+      await upsert(entries.map(([k, v]) => row(k, v, ttl)));
     },
   };
 }
 
 let shared: Store | null = null;
 
-/** The store for this server instance: Redis when its settings exist, otherwise memory. */
+/** The store for this server instance: Supabase when its settings exist, otherwise memory. */
 export function getStore(env: Record<string, string | undefined> = process.env): Store {
   if (shared) return shared;
-  // Vercel's Upstash integration injects KV_REST_API_*; Upstash's own naming is UPSTASH_REDIS_REST_*.
-  const url = env.UPSTASH_REDIS_REST_URL || env.KV_REST_API_URL;
-  const token = env.UPSTASH_REDIS_REST_TOKEN || env.KV_REST_API_TOKEN;
-  shared = url && token ? createRedisStore({ url, token }) : createMemoryStore();
+  // Vercel's Supabase integration sets SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (server only).
+  const url = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  shared = url && serviceKey ? createSupabaseStore({ url, serviceKey }) : createMemoryStore();
   return shared;
 }
 

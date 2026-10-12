@@ -48,7 +48,7 @@ export type ScoutResult = {
     categoryMethod: "ai" | "tags" | "mixed";
     angleMethod: "ai" | "template" | "mixed";
     model: string;
-    store: "redis" | "memory";
+    store: "supabase" | "memory";
   };
 };
 
