@@ -2,6 +2,7 @@
 // one row per product id, with founder, maker comments and day counts worked out.
 import { daysLeft, daysSinceLaunch, inWindow } from "./dates";
 import { resolveFounder, type RawMaker } from "./founder";
+import { truncateDescription } from "./prompts";
 import type { RawPost } from "./producthunt";
 import type { Product } from "./types";
 
@@ -33,7 +34,8 @@ export function buildPool(raw: RawPost[], now: Date): Product[] {
       id,
       name: str(post.name),
       tagline: str(post.tagline),
-      description: str(post.description),
+      // Only the first 300 characters are ever sent to Gemini, so only those are kept (smaller cache).
+      description: truncateDescription(str(post.description)),
       productHuntUrl: str(post.url),
       websiteUrl: str(post.website) || null,
       launchedAt: launchedAt as string,
