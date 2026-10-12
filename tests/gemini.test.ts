@@ -66,6 +66,12 @@ describe("Gemini client", () => {
     expect(err.message).not.toContain(KEY);
   });
 
+  it("a 400 saying the key is not valid is reported as an auth problem", async () => {
+    const fetchImpl = (async () => new Response('{"error":{"status":"INVALID_ARGUMENT","message":"API key not valid. Please pass a valid API key.","details":[{"reason":"API_KEY_INVALID"}]}}', { status: 400 })) as unknown as typeof fetch;
+    const err = (await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e)) as GeminiError;
+    expect(err.kind).toBe("auth");
+  });
+
   it("reports invalid JSON as a format error", async () => {
     const fetchImpl = (async () => answer("not json")) as unknown as typeof fetch;
     const err = (await makeGemini({ apiKey: KEY, model: "m", fetchImpl })!(req).catch((e) => e)) as GeminiError;

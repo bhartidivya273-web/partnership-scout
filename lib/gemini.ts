@@ -65,6 +65,10 @@ export function makeGemini(config: Config): GeminiFn | null {
     }
 
     if (res.status === 429) throw new GeminiError("rate_limit", "Gemini rate limit reached.");
+    // Google answers a wrong or malformed key with a plain 400 rather than 401, so look at the reason.
+    if (res.status === 400 && /API_KEY_INVALID|API key not valid/i.test(await res.clone().text())) {
+      throw new GeminiError("auth", "Gemini did not accept the API key.");
+    }
     if (res.status === 401 || res.status === 403) throw new GeminiError("auth", "Gemini did not accept the API key.");
     if (res.status === 404) throw new GeminiError("model", "The Gemini model name was not found.");
     if (!res.ok) throw new GeminiError("other", `Gemini answered with status ${res.status}.`);
