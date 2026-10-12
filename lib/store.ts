@@ -64,6 +64,7 @@ export function createMemoryStore(now: () => number = Date.now): Store {
 type Supabase = { url: string; serviceKey: string; fetchImpl?: typeof fetch; now?: () => number };
 
 const TABLE = "scout_cache";
+const STORE_TIMEOUT_MS = 6_000;
 
 /**
  * The shared store, as one table: key (text, primary key), value (jsonb), expires_at (nullable).
@@ -80,6 +81,8 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch, now = 
       headers: init.prefer ? { ...headers, Prefer: init.prefer } : headers,
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       cache: "no-store",
+      // A slow or paused database must not hold the page: give up quickly and treat it as a miss.
+      signal: AbortSignal.timeout(STORE_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`Storage answered with status ${res.status}.`); // never echo the address or key
     const text = await res.text();

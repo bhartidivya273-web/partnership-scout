@@ -19,7 +19,7 @@ export class GeminiError extends Error {
 }
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const TIMEOUT_MS = 50_000;
+const TIMEOUT_MS = 45_000; // worst case 2 calls per job x 2 jobs stays inside the 300-second route limit
 
 type Config = { apiKey?: string; model?: string; fallbackModel?: string; fetchImpl?: typeof fetch };
 

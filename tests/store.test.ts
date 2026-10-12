@@ -144,6 +144,13 @@ describe("Supabase store (one table through Supabase's web interface)", () => {
     expect(await store.get<typeof big>("big")).toEqual(big);
   });
 
+  it("every request carries a timeout so a paused database cannot hang the page", async () => {
+    let signal: AbortSignal | undefined;
+    const fetchImpl = (async (_u: string, init: RequestInit) => ((signal = init.signal ?? undefined), new Response("[]"))) as unknown as typeof fetch;
+    await createSupabaseStore({ url: "https://p", serviceKey: "k", fetchImpl }).get("x");
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("errors never contain the key or the address", async () => {
     const fetchImpl = (async () => new Response("denied", { status: 401 })) as unknown as typeof fetch;
     const store = createSupabaseStore({ url: "https://secret-host.supabase.co", serviceKey: "super-secret-key", fetchImpl });

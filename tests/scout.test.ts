@@ -338,3 +338,25 @@ describe("pipeline: a weak run never replaces a good saved result", () => {
     expect(r.run.categoryMethod).toBe("ai");
   });
 });
+
+describe("pipeline: first-principles guards", () => {
+  it("an empty live answer from Product Hunt never replaces a good saved result", async () => {
+    const good = setup();
+    await run(good.deps);
+    const goodLast = await good.store.get<Bundle>("ps:v1:pool:last");
+    const store = createMemoryStore();
+    await store.set("ps:v1:pool:last", goodLast);
+    const r = await run({ ...good.deps, store, fetchImpl: fakePH(0).fetchImpl });
+    expect(r.items).toEqual([]);
+    expect(await store.get("ps:v1:pool:last")).toEqual(goodLast);
+  });
+
+  it("a storage call that hangs is abandoned and the page still answers", async () => {
+    const hanging: Store = { ...createMemoryStore(), kind: "supabase" };
+    for (const k of ["get", "set", "del", "setNX", "mget", "mset"] as const)
+      (hanging as Record<string, unknown>)[k] = () => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 20));
+    const { deps } = setup({ store: hanging });
+    const r = await run(deps);
+    expect(r.items.length).toBeGreaterThan(0);
+  });
+});

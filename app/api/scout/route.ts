@@ -6,7 +6,9 @@ import { runScout, ScoutError } from "@/lib/scout";
 import type { ScoutEvent } from "@/lib/result";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120; // a cold first run takes about 40 seconds; the lock expires after 130
+// A cold first run takes about 40 seconds; 300 (the Vercel Hobby maximum) covers slow Gemini answers
+// plus retries, and the lock expires after 310 so it can never outlive the run.
+export const maxDuration = 300;
 
 const MAX_BODY = 4_000;
 

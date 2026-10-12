@@ -21,7 +21,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TOP_N = 20;
 const FRESH_TTL = 12 * 60; // the pool is cached for 12 minutes (PRD: about 10 to 15)
 const PARTIAL_TTL = 3 * 60; // an incomplete pool is only kept very briefly
-const LOCK_TTL = 130; // longer than the route's 120-second maximum, so a dead run frees the lock
+const LOCK_TTL = 310; // longer than the route's 300-second maximum, so a run that dies still frees the lock
 const CAT_TTL = 7 * 24 * 60 * 60;
 const ANGLE_TTL = 3 * 24 * 60 * 60;
 const MIN_QUOTA = 1400; // one live run costs about 1,300 of the shared 6,250 points
@@ -199,7 +199,8 @@ export async function runScout(
       productText,
       angles: Object.fromEntries(top.flatMap((p) => (angles.get(p.id)?.angleSource === "gemini" ? [[p.id, angles.get(p.id)!]] : []))),
     };
-    const degraded = notes.has("category_topic") || top.some((p) => angles.get(p.id)?.angleSource === "template");
+    const degraded =
+      products.length === 0 || notes.has("category_topic") || top.some((p) => angles.get(p.id)?.angleSource === "template");
     await s.set(KEY.fresh, full, bundle.partial || degraded ? PARTIAL_TTL : FRESH_TTL);
     // A weaker run never replaces a good saved result; it is only saved if nothing is saved yet.
     if (!bundle.partial && (!degraded || !isBundle(await s.get<Bundle>(KEY.last)))) await s.set(KEY.last, full);
