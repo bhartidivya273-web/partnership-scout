@@ -48,7 +48,7 @@ Nothing here is assumed from documentation alone: the checks below were run agai
 ## 4. Supabase (storage)
 
 * One table, `scout_cache(key text primary key, value jsonb, expires_at timestamptz)`, row level security on with no policies, accessed only with the server-side service key.
-* Holds: the shared 12-minute pool cache, the saved last real result (never expires), per-product category/fit/outreach caches (7 and 3 days), the refresh lock, and Kavya's saved decisions (shortlist, contacted, notes) under a random per-browser workspace id.
+* Holds: the shared 12-minute pool cache, the saved last real result (never expires), per-product category/fit/outreach caches (7 and 3 days), the refresh lock, and Kavya's saved decisions (shortlist, contacted, notes), **one row per decision** under a random per-browser workspace id (so simultaneous saves cannot overwrite each other).
 * No emails or accounts are stored. Notes are free text that Kavya types; they are kept under her workspace id only.
 
 ## 5. The committed snapshot

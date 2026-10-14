@@ -29,7 +29,7 @@ Keys live only in `.env.local` (git-ignored) and in Vercel's project settings. T
 npm install
 cp .env.example .env.local       # fill in the values
 npm run dev                      # http://localhost:3000
-npm run check                    # type check, lint, 322 tests, production build
+npm run check                    # type check, lint, 329 tests, production build
 ```
 Node.js 20 or newer (built with 24).
 

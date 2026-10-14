@@ -43,7 +43,7 @@ Needs Node.js 20 or newer.
 npm install
 cp .env.example .env.local     # fill in PRODUCT_HUNT_TOKEN, GEMINI_API_KEY (Supabase optional)
 npm run dev                    # http://localhost:3000
-npm run check                  # type check, lint, 322 tests, production build
+npm run check                  # type check, lint, 329 tests, production build
 ```
 Full setup, Vercel and Supabase steps, operating notes and troubleshooting: [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md).
 
