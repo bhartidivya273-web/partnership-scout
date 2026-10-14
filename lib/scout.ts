@@ -44,7 +44,10 @@ export const KEY = {
 };
 const catKey = (model: string, id: string) => `ps:v1:cat:${model}:${id}`;
 const fitKey = (model: string, hash: string, id: string) => `ps:v2:fit:${model}:${hash}:${id}`;
-const outKey = (model: string, hash: string, id: string) => `ps:v2:out:${model}:${hash}:${id}`;
+// The greeting names the founder shown on the card, so the cache key includes who that is: Product Hunt's
+// maker order can change between fetches, and a cached "Hi Howard" must never sit on someone else's card.
+const founderFingerprint = (name: string | undefined) => createHash("sha1").update(name ?? "").digest("hex").slice(0, 8);
+const outKey = (model: string, hash: string, id: string, founder: string | undefined) => `ps:v2:out:${model}:${hash}:${founderFingerprint(founder)}:${id}`;
 
 export class ScoutError extends Error {
   constructor(public code: ErrorCode) {
@@ -173,8 +176,10 @@ async function loadPool(
 const methodOf = (aiCount: number, total: number): "ai" | "tags" | "mixed" => (total === 0 || aiCount === total ? "ai" : aiCount === 0 ? "tags" : "mixed");
 
 function resolveWeights(input: ScoutInput) {
-  if (input.weights && typeof input.weights === "object") {
-    return { weights: normaliseWeights(input.weights as Partial<Record<PriorityKey, unknown>>), preset: "custom" as const };
+  const custom = input.weights && typeof input.weights === "object" ? (input.weights as Partial<Record<PriorityKey, unknown>>) : null;
+  // Only weights with at least one usable positive number count as custom; junk falls through to the preset.
+  if (custom && Object.values(custom).some((v) => Number.isFinite(Number(v)) && Number(v) > 0)) {
+    return { weights: normaliseWeights(custom), preset: "custom" as const };
   }
   const preset: PresetName = isPreset(input.preset) ? input.preset : DEFAULT_PRESET;
   return { weights: { ...PRESETS[preset] }, preset };
@@ -282,7 +287,7 @@ export async function runScout(input: ScoutInput, deps: Deps, emit: (e: ScoutEve
   if (bundle.productText === productText) for (const p of top) if (bundle.outreach?.[p.id]) outreach.set(p.id, bundle.outreach[p.id]);
   let missing = top.filter((p) => !outreach.has(p.id));
   if (missing.length > 0) {
-    const cached = await s.mget<Outreach>(missing.map((p) => outKey(deps.model, textHash, p.id)));
+    const cached = await s.mget<Outreach>(missing.map((p) => outKey(deps.model, textHash, p.id, p.founder.visibleMakers[0]?.name)));
     missing.forEach((p, i) => cached[i]?.message && outreach.set(p.id, cached[i] as Outreach));
     missing = missing.filter((p) => !outreach.has(p.id));
   }
@@ -297,7 +302,8 @@ export async function runScout(input: ScoutInput, deps: Deps, emit: (e: ScoutEve
       ),
     );
     written.forEach((o, id) => outreach.set(id, o));
-    await s.mset([...written].filter(([, o]) => o.source === "gemini").map(([id, o]) => [outKey(deps.model, textHash, id), o] as [string, Outreach]), AI_TTL);
+    const founderOf = new Map(top.map((p) => [p.id, p.founder.visibleMakers[0]?.name]));
+    await s.mset([...written].filter(([, o]) => o.source === "gemini").map(([id, o]) => [outKey(deps.model, textHash, id, founderOf.get(id)), o] as [string, Outreach]), AI_TTL);
   }
 
   if (top.some((p) => !p.fitInfo)) notes.add("fit_unrated");

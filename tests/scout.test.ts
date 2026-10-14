@@ -410,7 +410,10 @@ describe("pipeline: ranking, refresh and evidence (product upgrade)", () => {
   it("an unknown preset or junk weights fall back to the balanced default", async () => {
     const { deps } = setup({}, fakePH(30));
     expect((await runScout({ categories: ALL, preset: "nonsense" }, deps)).preset).toBe("balanced");
-    expect((await runScout({ categories: ALL, weights: { votes: "x", maker: -3 } }, deps)).weights).toMatchObject({ votes: 20, maker: 20, relevance: 30 });
+    const junk = await runScout({ categories: ALL, weights: { votes: "x", maker: -3 } }, deps);
+    expect(junk.weights).toMatchObject({ votes: 20, maker: 20, relevance: 30 });
+    expect(junk.preset).toBe("balanced"); // not labelled "custom" when nothing custom was usable
+    expect((await runScout({ categories: ALL, preset: "fit", weights: {} }, deps)).preset).toBe("fit");
   });
 
   it("the shortlist is the top 40 by engagement, and every shown row was really rated", async () => {
@@ -529,5 +532,34 @@ describe("pipeline: results never depend on cache state", () => {
     const ids = r.items.map((i) => Number(i.id));
     expect(ids.every((id) => id <= 40)).toBe(true); // nothing from outside the shortlist
     expect(ids[0]).toBe(39); // a strong fit inside the shortlist rises to the top
+  });
+});
+
+describe("pipeline: outreach always greets the founder shown on the card", () => {
+  const makers = (a: string, b: string) => [
+    { id: "1", name: `${a} Smith`, username: a.toLowerCase(), url: `https://www.producthunt.com/@${a.toLowerCase()}` },
+    { id: "2", name: `${b} Jones`, username: b.toLowerCase(), url: `https://www.producthunt.com/@${b.toLowerCase()}` },
+  ];
+  it("a cached message for one founder is not reused when Product Hunt lists the makers in another order", async () => {
+    const first = setup({}, fakePH(30, { makePost: (i) => rawPost(i, { makers: makers("Howard", "Chen") }) }));
+    const a = await run(first.deps);
+    expect(a.items.every((i) => i.outreach.message.startsWith("Hi Howard,"))).toBe(true);
+    // Same shared caches, but the next fetch lists the makers the other way round.
+    await first.store.del("ps:v2:pool:fresh");
+    await first.store.del("ps:v2:pool:last");
+    const swapped = { ...first.deps, fetchImpl: fakePH(30, { makePost: (i) => rawPost(i, { makers: makers("Chen", "Howard") }) }).fetchImpl };
+    const b = await run(swapped);
+    expect(b.items.every((i) => i.founder.makers[0].name === "Chen Smith")).toBe(true);
+    expect(b.items.every((i) => i.outreach.message.startsWith("Hi Chen,"))).toBe(true);
+  });
+  it("the same founder keeps the cached message (no needless AI calls)", async () => {
+    const ai = fakeGemini();
+    const first = setup({}, fakePH(30, { makePost: (i) => rawPost(i, { makers: makers("Howard", "Chen") }) }), ai);
+    await run(first.deps);
+    await first.store.del("ps:v2:pool:fresh");
+    await first.store.del("ps:v2:pool:last");
+    const before = ai.calls.outreach;
+    await run(first.deps);
+    expect(ai.calls.outreach).toBe(before);
   });
 });

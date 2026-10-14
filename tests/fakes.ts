@@ -45,6 +45,12 @@ export function fakePH(total: number, opts: { failWith?: number; makePost?: (i: 
   return { fetchImpl, calls };
 }
 
+/** The greeting a model would write: ", Name" when the data block names the founder, otherwise nothing. */
+function founderOf(user: string, id: string): string {
+  const m = user.match(new RegExp(`"id":"${id}"[^\\n]*?"founderName":"([^"]+)"`));
+  return m ? ` ${m[1].split(" ")[0]}` : "";
+}
+
 /** A Gemini that sorts every product into team_communication, rates a fit and writes valid, unique outreach. */
 export function fakeGemini(
   opts: {
@@ -81,7 +87,7 @@ export function fakeGemini(
       id,
       connection: `${names.get(id)} is part of how teams work, so a written async standup beside it could cut a status meeting for its users.`,
       hypothesis: `An integration could post each person's written standup into ${names.get(id)}, or a joint post could show remote teams how to skip the daily call.`,
-      message: `Hi, I work on an async standup tool for remote teams. ${names.get(id)} caught my eye because teams using it often still hold a daily call. My hypothesis is that written standups beside their work could replace that call for small remote teams. Would a short chat about whether your users would want that make sense? Kavya`,
+      message: `Hi${founderOf(req.user, id)}, I work on an async standup tool for remote teams. ${names.get(id)} caught my eye because teams using it often still hold a daily call. My hypothesis is that written standups beside their work could replace that call for small remote teams. Would a short chat about whether your users would want that make sense? Kavya`,
       question: `How do your users keep daily progress visible today?`,
       caveat: "Check whether the product already connects to standup tools and confirm the contact is the right person.",
     }));
