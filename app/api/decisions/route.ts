@@ -1,6 +1,6 @@
 // Saves and returns Kavya's decisions (shortlisted, contacted, notes) for one browser workspace.
 // Errors are plain sentences: no stack traces, no storage details, no keys.
-import { applyUpdate, isWorkspaceId, loadDecisions, saveDecisions, type DecisionUpdate } from "@/lib/decisions";
+import { applyUpdate, isWorkspaceId, loadDecisions, saveDecision, type DecisionUpdate } from "@/lib/decisions";
 import { logEvent } from "@/lib/log";
 import { getStore } from "@/lib/store";
 
@@ -37,7 +37,7 @@ export async function PUT(request: Request) {
   try {
     const result = applyUpdate(await loadDecisions(store, body.workspace), body, new Date());
     if (!result.ok) return json({ ok: false, error: result.error }, 400);
-    await saveDecisions(store, body.workspace, result.all);
+    await saveDecision(store, body.workspace, String(body.productId), result.decision);
     return json({ ok: true, decision: result.decision, storage: store.kind });
   } catch {
     logEvent("decisions.failed", { op: "save", kind: store.kind });

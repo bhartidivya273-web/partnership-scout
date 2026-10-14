@@ -30,6 +30,12 @@ describe("memory store", () => {
     expect(await s.setNX("lock", 1, 5)).toBe(true);
   });
 
+  it("list finds keys by prefix in memory too", async () => {
+    const s = createMemoryStore();
+    await s.mset([["a:1", 1], ["a:2", 2], ["b:1", 3]], 60);
+    expect((await s.list("a:")).map(([k, v]) => `${k}=${v}`).sort()).toEqual(["a:1=1", "a:2=2"]);
+  });
+
   it("mget and mset handle several keys at once", async () => {
     const s = createMemoryStore();
     await s.mset([["a", 1], ["b", 2]], 60);
@@ -52,6 +58,10 @@ describe("Supabase store (one table through Supabase's web interface)", () => {
       const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status });
       if (init.method === "GET") {
         const f = q.get("key") ?? "";
+        if (f.startsWith("like.")) {
+          const prefix = f.slice(5).replace(/\*$/, "");
+          return json([...table.values()].filter((r) => r.key.startsWith(prefix)));
+        }
         const keys = f.startsWith("eq.") ? [f.slice(3)] : f.slice(4, -1).split(",").map((k) => k.replace(/^"|"$/g, ""));
         return json(keys.flatMap((k) => (table.has(k) ? [table.get(k)] : [])));
       }
@@ -114,6 +124,18 @@ describe("Supabase store (one table through Supabase's web interface)", () => {
     const { store } = make();
     const wins = await Promise.all([store.setNX("lock", 1, 130), store.setNX("lock", 1, 130), store.setNX("lock", 1, 130)]);
     expect(wins.filter(Boolean)).toHaveLength(1);
+  });
+
+  it("list returns every live key under a prefix, and nothing else", async () => {
+    let t = 1_000_000_000_000;
+    const { store } = make(() => t);
+    await store.set("ps:v2:dec:aaa:1", { n: 1 });
+    await store.set("ps:v2:dec:aaa:2", { n: 2 }, 10);
+    await store.set("ps:v2:dec:bbb:1", { n: 3 });
+    expect((await store.list("ps:v2:dec:aaa:")).map(([k]) => k).sort()).toEqual(["ps:v2:dec:aaa:1", "ps:v2:dec:aaa:2"]);
+    t += 11_000;
+    expect((await store.list("ps:v2:dec:aaa:")).map(([k]) => k)).toEqual(["ps:v2:dec:aaa:1"]); // the expired one is gone
+    expect(await store.list("nothing:")).toEqual([]);
   });
 
   it("del removes a key", async () => {
@@ -181,12 +203,16 @@ describe("safeStore", () => {
     mset: async () => {
       throw new Error("down");
     },
+    list: async () => {
+      throw new Error("down");
+    },
   };
   it("turns a storage outage into misses and skipped writes instead of errors", async () => {
     const s = safeStore(broken);
     expect(await s.get("k")).toBeNull();
     await expect(s.set("k", 1)).resolves.toBeUndefined();
     expect(await s.mget(["a", "b"])).toEqual([null, null]);
+    expect(await s.list("a:")).toEqual([]);
     await expect(s.mset([["a", 1]], 5)).resolves.toBeUndefined();
   });
   it("lets a run continue when the lock cannot be asked for", async () => {

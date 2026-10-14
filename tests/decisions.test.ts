@@ -76,6 +76,20 @@ describe("decisions endpoint (persistence of shortlist and contact status)", () 
     const other = await (await get(WS2)).json();
     expect(other.decisions).toEqual({});
   });
+  it("simultaneous saves to different products are all kept (no lost updates)", async () => {
+    const ws = "cccccccccccccccccccccccccccccccc";
+    await Promise.all(
+      [1, 2, 3, 4, 5, 6, 7, 8].map((n) => put({ workspace: ws, productId: `5${n}`, name: `P${n}`, url: `https://www.producthunt.com/products/p${n}`, status: "shortlisted" })),
+    );
+    const body = await (await get(ws)).json();
+    expect(Object.keys(body.decisions).sort()).toEqual(["51", "52", "53", "54", "55", "56", "57", "58"]);
+  });
+  it("clearing a decision removes it from storage", async () => {
+    const ws = "dddddddddddddddddddddddddddddddd";
+    await put({ workspace: ws, productId: "61", name: "X", url: URL1, status: "shortlisted" });
+    await put({ workspace: ws, productId: "61", status: "none", note: "" });
+    expect((await (await get(ws)).json()).decisions).toEqual({});
+  });
   it("refuses an unknown workspace, bad JSON, bad updates and oversized bodies with plain messages", async () => {
     expect((await get("short")).status).toBe(400);
     expect((await put({ workspace: "nope", productId: "1" })).status).toBe(400);

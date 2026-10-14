@@ -13,6 +13,8 @@ export type Store = {
   setNX(key: string, value: unknown, ttlSeconds: number): Promise<boolean>;
   mget<T>(keys: string[]): Promise<Array<T | null>>;
   mset(entries: Array<[string, unknown]>, ttlSeconds: number): Promise<void>;
+  /** Every live key that starts with `prefix`, with its value (used for per-product decisions). */
+  list<T>(prefix: string): Promise<Array<[string, T]>>;
 };
 
 const parse = <T>(raw: unknown): T | null => {
@@ -59,6 +61,15 @@ export function createMemoryStore(now: () => number = Date.now): Store {
     },
     async mset(entries, ttl) {
       for (const [k, v] of entries) write(k, v, ttl);
+    },
+    async list<T>(prefix: string) {
+      const out: Array<[string, T]> = [];
+      for (const key of [...data.keys()]) {
+        if (!key.startsWith(prefix)) continue;
+        const value = parse<T>(read(key));
+        if (value !== null) out.push([key, value]);
+      }
+      return out;
     },
   };
 }
@@ -133,6 +144,11 @@ export function createSupabaseStore({ url, serviceKey, fetchImpl = fetch, now = 
       if (entries.length === 0) return;
       await upsert(entries.map(([k, v]) => row(k, v, ttl)));
     },
+    async list<T>(prefix: string) {
+      // In PostgREST, "*" is the wildcard of "like"; the prefix itself has no wildcards in it.
+      const rows = (await call(`?key=like.${encodeURIComponent(`${prefix.replace(/[*%_]/g, "")}*`)}&select=key,value,expires_at&limit=1000`, { method: "GET" })) as Row[];
+      return rows.flatMap((r) => (live(r) === null ? [] : [[r.key, live(r) as T] as [string, T]]));
+    },
   };
 }
 
@@ -179,5 +195,13 @@ export function safeStore(store: Store): Store {
       }
     }) as Store["mget"],
     mset: guard(store.mset.bind(store), undefined, "mset"),
+    list: (async (prefix: string) => {
+      try {
+        return await store.list(prefix);
+      } catch {
+        logEvent("store.failed", { op: "list", kind: store.kind });
+        return [];
+      }
+    }) as Store["list"],
   };
 }

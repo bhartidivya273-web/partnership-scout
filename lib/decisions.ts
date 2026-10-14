@@ -24,7 +24,9 @@ export const MAX_NAME = 120;
 const WORKSPACE = /^[a-f0-9-]{16,64}$/;
 const PRODUCT_ID = /^[A-Za-z0-9_-]{1,40}$/;
 export const isWorkspaceId = (v: unknown): v is string => typeof v === "string" && WORKSPACE.test(v);
-export const decisionKey = (workspace: string) => `ps:v1:dec:${workspace}`;
+// One row per decision, so two saves to different products can never overwrite each other.
+export const decisionPrefix = (workspace: string) => `ps:v2:dec:${workspace}:`;
+export const decisionKey = (workspace: string, productId: string) => `${decisionPrefix(workspace)}${productId}`;
 
 export type DecisionUpdate = { productId?: unknown; name?: unknown; url?: unknown; status?: unknown; note?: unknown };
 export type UpdateResult = { ok: true; all: Record<string, Decision>; decision: Decision | null } | { ok: false; error: string };
@@ -64,9 +66,12 @@ export function applyUpdate(current: Record<string, Decision>, u: DecisionUpdate
 }
 
 export async function loadDecisions(store: Store, workspace: string): Promise<Record<string, Decision>> {
-  return (await store.get<Record<string, Decision>>(decisionKey(workspace))) ?? {};
+  const rows = await store.list<Decision>(decisionPrefix(workspace));
+  return Object.fromEntries(rows.map(([, d]) => [d.productId, d]));
 }
 
-export async function saveDecisions(store: Store, workspace: string, all: Record<string, Decision>): Promise<void> {
-  await store.set(decisionKey(workspace), all); // no expiry: a decision is kept until Kavya changes it
+/** Writes (or removes) only the one product that changed. A decision is kept until Kavya changes it. */
+export async function saveDecision(store: Store, workspace: string, productId: string, decision: Decision | null): Promise<void> {
+  if (decision) await store.set(decisionKey(workspace, productId), decision);
+  else await store.del(decisionKey(workspace, productId));
 }

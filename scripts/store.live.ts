@@ -2,6 +2,7 @@
 // batches. Uses throw-away keys prefixed "test:" and removes them at the end.
 // Run: npx vitest run -c vitest.live.config.mts scripts/store.live.ts
 import { expect, it } from "vitest";
+import { applyUpdate, loadDecisions, saveDecision } from "@/lib/decisions";
 import { createSupabaseStore } from "@/lib/store";
 
 it("real Supabase: values, expiry, lock race, batches", async () => {
@@ -34,4 +35,23 @@ it("real Supabase: values, expiry, lock race, batches", async () => {
   for (const k of [...keys, `${id}:big`]) await store.del(k);
   expect(await store.get(keys[0])).toBeNull();
   console.log("REAL SUPABASE STORE: all checks passed, test keys removed");
+});
+
+it("real Supabase: prefix listing and 12 parallel decision saves lose nothing", async () => {
+  const store = createSupabaseStore({ url: process.env.SUPABASE_URL!, serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY! });
+  const ws = `${Date.now().toString(16).padStart(32, "0")}`.slice(-32);
+  const ids = Array.from({ length: 12 }, (_, i) => `70${i}`);
+  await Promise.all(
+    ids.map(async (id) => {
+      const current = await loadDecisions(store, ws);
+      const r = applyUpdate(current, { productId: id, name: `P${id}`, url: "https://www.producthunt.com/products/p", status: "shortlisted" }, new Date());
+      if (r.ok) await saveDecision(store, ws, id, r.decision);
+    }),
+  );
+  const all = await loadDecisions(store, ws);
+  console.log("PARALLEL SAVES kept", Object.keys(all).length, "of", ids.length);
+  expect(Object.keys(all).sort()).toEqual([...ids].sort());
+  expect(Object.keys(await loadDecisions(store, "f".repeat(32)))).toEqual([]); // another workspace stays empty
+  for (const id of ids) await saveDecision(store, ws, id, null);
+  expect(await loadDecisions(store, ws)).toEqual({});
 });

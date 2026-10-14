@@ -195,7 +195,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
 
   it("storage failure does not take the page down: it still goes live", async () => {
     const broken: Store = { ...createMemoryStore(), kind: "supabase" };
-    for (const k of ["get", "set", "del", "setNX", "mget", "mset"] as const) (broken as Record<string, unknown>)[k] = async () => { throw new Error("down"); };
+    for (const k of ["get", "set", "del", "setNX", "mget", "mset", "list"] as const) (broken as Record<string, unknown>)[k] = async () => { throw new Error("down"); };
     const { deps } = setup({ store: broken });
     const r = await run(deps);
     expect(r.source).toBe("live");
@@ -358,7 +358,7 @@ describe("pipeline: first-principles guards", () => {
 
   it("a storage call that hangs is abandoned and the page still answers", async () => {
     const hanging: Store = { ...createMemoryStore(), kind: "supabase" };
-    for (const k of ["get", "set", "del", "setNX", "mget", "mset"] as const)
+    for (const k of ["get", "set", "del", "setNX", "mget", "mset", "list"] as const)
       (hanging as Record<string, unknown>)[k] = () => new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 20));
     const { deps } = setup({ store: hanging });
     const r = await run(deps);
