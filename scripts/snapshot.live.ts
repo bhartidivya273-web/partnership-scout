@@ -14,11 +14,11 @@ it("write the snapshot from a real live run", async () => {
   const store = createMemoryStore();
   const result = await runScout({ categories: [...CATEGORY_KEYS] }, { ...getDeps(process.env), store, snapshot: null });
   if (result.source !== "live") throw new Error(`expected a live run, got ${result.source}`);
-  if (result.notes.length > 0) throw new Error(`run had notes: ${result.notes.join(", ")}; not saving a degraded snapshot`);
+  if (result.notes.some((n) => n !== "refresh_throttled")) throw new Error(`run had notes: ${result.notes.join(", ")}; not saving a degraded snapshot`);
   const bundle = await store.get<Bundle>(KEY.last);
   if (!bundle) throw new Error("no saved bundle to export");
   writeFileSync("data/last-good-snapshot.json", JSON.stringify(bundle));
   console.log(
-    `SNAPSHOT written: fetchedAt=${bundle.fetchedAt} products=${bundle.products.length} classified=${Object.keys(bundle.classifications).length} angles=${Object.keys(bundle.angles).length} aiAngles=${result.run.angleMethod} seconds=${result.run.seconds}`,
+    `SNAPSHOT written: fetchedAt=${bundle.fetchedAt} products=${bundle.products.length} classified=${Object.keys(bundle.classifications).length} fits=${Object.keys(bundle.fits).length} outreach=${Object.keys(bundle.outreach).length} outreachMethod=${result.run.outreachMethod} seconds=${result.run.seconds}`,
   );
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakdownParts, closesText, createLineParser, isClosingSoon, launchedText, minutesAgo, oneDecimal, sortRows } from "@/lib/format";
+import { ageText, closesText, createLineParser, isClosingSoon, launchedText, minutesAgo, oneDecimal, safeHttpUrl, twitterUrl } from "@/lib/format";
 import { COPY } from "@/lib/copy";
 
 describe("page text rules (UI spec)", () => {
@@ -33,31 +33,6 @@ describe("page text rules (UI spec)", () => {
   });
 });
 
-describe("score breakdown", () => {
-  it("the two parts add up to the score (B: 40.0 + 50.0 = 90.0)", () => {
-    const p = breakdownParts({ votesPart: 0.8, makerPart: 1 }, { votes: 0.5, maker: 0.5 });
-    expect(p.votes).toBeCloseTo(40, 5);
-    expect(p.maker).toBeCloseTo(50, 5);
-  });
-});
-
-describe("sorting the rows on screen", () => {
-  const rows = [
-    { rank: 1, daysLeft: 6, daysSinceLaunch: 1 },
-    { rank: 2, daysLeft: 1, daysSinceLaunch: 6 },
-    { rank: 3, daysLeft: 3, daysSinceLaunch: 0 },
-  ];
-  it("highest score keeps rank order", () => expect(sortRows(rows, "score").map((r) => r.rank)).toEqual([1, 2, 3]));
-  it("closing soon puts the fewest days left first", () => expect(sortRows(rows, "closing").map((r) => r.rank)).toEqual([2, 3, 1]));
-  it("newest puts the most recent launch first", () => expect(sortRows(rows, "newest").map((r) => r.rank)).toEqual([3, 1, 2]));
-  it("ranks themselves never change when sorting", () => expect(sortRows(rows, "closing").map((r) => r.rank).sort()).toEqual([1, 2, 3]));
-  it("does not change the original list", () => {
-    const before = JSON.stringify(rows);
-    sortRows(rows, "closing");
-    expect(JSON.stringify(rows)).toBe(before);
-  });
-});
-
 describe("stream line parser", () => {
   it("handles lines split across chunks and a last line with no newline", () => {
     const lines: string[] = [];
@@ -69,26 +44,17 @@ describe("stream line parser", () => {
   });
 });
 
-import { groupByFit, summaryCounts } from "@/lib/format";
-
-describe("grouping by fit", () => {
-  const rows = [
-    { id: "a", rank: 1, fit: "weak" as const, daysLeft: 1 },
-    { id: "b", rank: 2, fit: "strong" as const, daysLeft: 5 },
-    { id: "c", rank: 3, fit: null, daysLeft: 6 },
-    { id: "d", rank: 4, fit: "strong" as const, daysLeft: 2 },
-  ];
-  it("puts strong first, then partial, weak, unrated, and skips empty groups", () => {
-    expect(groupByFit(rows).map((g) => [g.fit, g.rows.map((r) => r.id)])).toEqual([
-      ["strong", ["b", "d"]],
-      ["weak", ["a"]],
-      [null, ["c"]],
-    ]);
+describe("safe links", () => {
+  it("only http and https links are ever used", () => {
+    expect(safeHttpUrl("https://example.com/a")).toBe("https://example.com/a");
+    expect(safeHttpUrl("http://example.com")).toBe("http://example.com/");
+    for (const bad of ["javascript:alert(1)", "data:text/html,x", "ftp://x.example", "not a url", "", null, undefined]) expect(safeHttpUrl(bad as string)).toBeNull();
   });
-  it("keeps the order it was given inside each group (so sorting still applies)", () => {
-    expect(groupByFit([rows[3], rows[1]])[0].rows.map((r) => r.id)).toEqual(["d", "b"]);
+  it("a Twitter handle becomes a link only if it is a plain handle", () => {
+    expect(twitterUrl("iris_tu")).toBe("https://x.com/iris_tu");
+    for (const bad of ["a b", "x/../y", "<script>", "", null, "waytoolongforahandle1"]) expect(twitterUrl(bad as string)).toBeNull();
   });
-  it("counts fits and closing-soon windows for the summary", () => {
-    expect(summaryCounts(rows)).toEqual({ strong: 2, partial: 0, weak: 1, unrated: 1, closing: 2 });
+  it("age text is plain", () => {
+    expect([0, 1, 59, 60, 125, 60 * 49].map(ageText)).toEqual(["less than a minute", "1 min", "59 min", "1 hour", "2 hours", "2 days"]);
   });
 });

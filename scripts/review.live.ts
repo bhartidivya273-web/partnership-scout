@@ -1,17 +1,19 @@
-// Quality review on REAL data (Builder_Pack/01 section 4): fetches the live pool once (cached in
-// REVIEW_DIR so repeat runs cost no Product Hunt quota), then prints category labels and angles.
-// Run: REVIEW_DIR=/some/folder npx vitest run -c vitest.live.config.mts
+// Quality review on REAL data: fetches the live pool once (cached in REVIEW_DIR so repeat runs cost no
+// Product Hunt quota), then runs the real pipeline steps and prints what a person should check:
+// category labels, fit ratings with reasons, the priority breakdown and the outreach text.
+// Run: REVIEW_DIR=/some/folder npx vitest run -c vitest.live.config.mts scripts/review.live.ts
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { it } from "vitest";
-import { writeAngles } from "@/lib/angles";
 import { CATEGORY_LABELS } from "@/lib/categories";
 import { classifyProducts } from "@/lib/classify";
+import { rateFit } from "@/lib/fit";
 import { makeGemini } from "@/lib/gemini";
 import { DEFAULT_PRODUCT_TEXT } from "@/lib/input";
+import { writeOutreach } from "@/lib/outreach";
 import { buildPool } from "@/lib/pool";
+import { PRIORITY_KEYS, rankByPriority } from "@/lib/priority";
 import { fetchFeaturedPosts } from "@/lib/producthunt";
-import { rankPool } from "@/lib/scoring";
 import type { ClassifiedProduct, Product } from "@/lib/types";
 
 const dir = process.env.REVIEW_DIR ?? ".review-cache";
@@ -30,51 +32,44 @@ it("review on real data", async () => {
     writeFileSync(poolFile, JSON.stringify(pool));
     console.log(`POOL live: ${pool.length} products, ${r.pages} pages, quota left ${r.quotaRemaining}`);
   }
-
-  const gen = makeGemini({
-    apiKey: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL,
-    fallbackModel: process.env.GEMINI_FALLBACK_MODEL,
-  });
+  const gen = makeGemini({ apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL, fallbackModel: process.env.GEMINI_FALLBACK_MODEL });
 
   let t = Date.now();
-  const { results, usedFallback } = await classifyProducts(pool, gen);
-  console.log(`CLASSIFY: ${((Date.now() - t) / 1000).toFixed(1)}s, fallback used: ${usedFallback}`);
-  const counts: Record<string, number> = { none: 0 };
-  let topicCount = 0;
-  for (const c of results.values()) {
-    if (c.source === "topic") topicCount++;
-    if (c.categories.length === 0) counts.none++;
-    for (const k of c.categories) counts[k] = (counts[k] ?? 0) + 1;
-  }
-  console.log("CATEGORY COUNTS", JSON.stringify(counts), "topic-sourced:", topicCount);
+  const { results } = await classifyProducts(pool, gen);
+  console.log(`CLASSIFY ${((Date.now() - t) / 1000).toFixed(1)}s`);
+  const candidates: ClassifiedProduct[] = pool.flatMap((p) => {
+    const c = results.get(p.id)!;
+    return c.categories.length ? [{ ...p, categories: c.categories, categorySource: c.source, categoryReason: c.reason }] : [];
+  });
+  console.log(`CANDIDATES ${candidates.length} of ${pool.length}`);
 
-  const classified: ClassifiedProduct[] = pool
-    .map((p) => {
-      const c = results.get(p.id)!;
-      return { ...p, categories: c.categories, categorySource: c.source, categoryReason: c.reason };
-    })
-    .filter((p) => p.categories.length > 0);
-  const ranked = rankPool(classified);
-  console.log(`CANDIDATES in categories: ${classified.length}`);
-  console.log("TOP 20 (rank | score | votes | maker | categories | name | tagline | reason)");
-  for (const p of ranked.slice(0, 20)) {
-    console.log(
-      [p.rank, p.score.total, p.upvotes, p.makerComments, p.categories.map((c) => CATEGORY_LABELS[c]).join("+"), p.name, `"${p.tagline}"`, p.categoryReason].join(" | "),
-    );
-  }
-
-  // A sample of excluded products, to check nothing relevant was dropped.
-  const excluded = pool.filter((p) => results.get(p.id)!.categories.length === 0).slice(0, 15);
-  console.log("EXCLUDED SAMPLE (name | tagline | reason)");
-  for (const p of excluded) console.log([p.name, `"${p.tagline}"`, results.get(p.id)!.reason].join(" | "));
+  const stage1 = rankByPriority(candidates, new Map(), "balanced").slice(0, 40);
+  t = Date.now();
+  const fits = await rateFit(stage1, DEFAULT_PRODUCT_TEXT, gen);
+  console.log(`FIT ${((Date.now() - t) / 1000).toFixed(1)}s: rated ${fits.size} of ${stage1.length}`);
+  const ranked = rankByPriority(candidates, fits, "balanced");
+  const top = ranked.slice(0, 20);
 
   t = Date.now();
-  const angles = await writeAngles(ranked.slice(0, 20), DEFAULT_PRODUCT_TEXT, gen);
-  console.log(`ANGLES: ${((Date.now() - t) / 1000).toFixed(1)}s`);
-  for (const p of ranked.slice(0, 20)) {
-    const a = angles.get(p.id)!;
-    console.log(`#${p.rank} ${p.name} [${a.angleSource}, fit ${a.fit}] ${a.angle}`);
+  const outreach = await writeOutreach(
+    top.map((p) => ({ ...p, fit: p.fitInfo?.fit ?? null, founderName: p.founder.visibleMakers[0]?.name ?? null })),
+    DEFAULT_PRODUCT_TEXT,
+    gen,
+  );
+  console.log(`OUTREACH ${((Date.now() - t) / 1000).toFixed(1)}s: AI ${[...outreach.values()].filter((o) => o.source === "gemini").length} of ${top.length}`);
+
+  for (const p of top) {
+    const o = outreach.get(p.id)!;
+    const parts = PRIORITY_KEYS.map((k) => `${k}=${p.priority.parts[k].points.toFixed(1)}`).join(" ");
+    console.log(`\n#${p.rank} ${p.name} | priority ${p.priority.total} (${parts}) | ${p.categories.map((c) => CATEGORY_LABELS[c]).join("+")} | fit ${p.fitInfo?.fit} | evidence ${p.evidenceCount}/5`);
+    console.log(`   tagline: ${p.tagline}`);
+    console.log(`   founder: ${p.founder.label} | votes ${p.upvotes} maker ${p.makerComments} | day ${p.daysSinceLaunch}`);
+    console.log(`   relevance: ${p.fitInfo?.relevance}`);
+    console.log(`   [${o.source}] connection: ${o.connection}`);
+    console.log(`   hypothesis: ${o.hypothesis}`);
+    console.log(`   message: ${o.message}`);
+    console.log(`   question: ${o.question}`);
+    console.log(`   caveat: ${o.caveat}`);
   }
-  writeFileSync(path.join(dir, "review.json"), JSON.stringify({ counts, top: ranked.slice(0, 20).map((p) => ({ n: p.name, a: angles.get(p.id) })) }));
+  writeFileSync(path.join(dir, "review.json"), JSON.stringify({ top: top.map((p) => ({ n: p.name, fit: p.fitInfo, o: outreach.get(p.id) })) }));
 });

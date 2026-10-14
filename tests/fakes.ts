@@ -15,6 +15,10 @@ export function rawPost(i: number, over: Record<string, unknown> = {}) {
     votesCount: 10 + i,
     commentsCount: 5,
     makerReplies: i % 7,
+    dailyRank: (i % 9) + 1,
+    weeklyRank: null,
+    reviewsCount: 0,
+    reviewsRating: null,
     makers: [{ id: "0", name: "[REDACTED]", username: "[REDACTED]" }],
     topics: { edges: [{ node: { name: "Task Management" } }] },
     ...over,
@@ -41,9 +45,19 @@ export function fakePH(total: number, opts: { failWith?: number; makePost?: (i: 
   return { fetchImpl, calls };
 }
 
-/** A Gemini that sorts every product into team_communication and writes a valid, unique angle. */
-export function fakeGemini(opts: { failClassify?: boolean; failAngles?: boolean; categoryFor?: (id: string) => string[] } = {}) {
-  const calls = { classify: 0, angles: 0 };
+/** A Gemini that sorts every product into team_communication, rates a fit and writes valid, unique outreach. */
+export function fakeGemini(
+  opts: {
+    failClassify?: boolean;
+    failFit?: boolean;
+    failOutreach?: boolean;
+    /** Fails both fit rating and outreach (the old "angle" job). */
+    failAngles?: boolean;
+    categoryFor?: (id: string) => string[];
+    fitFor?: (id: string) => string;
+  } = {},
+) {
+  const calls = { classify: 0, fit: 0, outreach: 0 };
   const gen: GeminiFn = async (req) => {
     const ids = [...req.user.matchAll(/"id":"(\w+)"/g)].map((m) => m[1]);
     const names = new Map([...req.user.matchAll(/"id":"(\w+)","name":"([^"]*)"/g)].map((m) => [m[1], m[2]]));
@@ -52,12 +66,24 @@ export function fakeGemini(opts: { failClassify?: boolean; failAngles?: boolean;
       if (opts.failClassify) throw new Error("gemini down");
       return ids.map((id) => ({ id, categories: opts.categoryFor ? opts.categoryFor(id) : ["team_communication"], reason: "fits team tools" }));
     }
-    calls.angles += 1;
-    if (opts.failAngles) throw new Error("gemini down");
+    if (req.system.includes("rate how well it fits as a partner")) {
+      calls.fit += 1;
+      if (opts.failFit || opts.failAngles) throw new Error("gemini down");
+      return ids.map((id) => ({
+        id,
+        fit: opts.fitFor ? opts.fitFor(id) : Number(id) % 3 === 0 ? "strong" : "partial",
+        relevance: `${names.get(id)} is part of how teams work, so written standups could sit beside it.`,
+      }));
+    }
+    calls.outreach += 1;
+    if (opts.failOutreach || opts.failAngles) throw new Error("gemini down");
     return ids.map((id) => ({
       id,
-      fit: "partial",
-      angle: `${names.get(id)} sits near how teams work together, so an async standup integration could fit. A joint post is a good first step.`,
+      connection: `${names.get(id)} is part of how teams work, so a written async standup beside it could cut a status meeting for its users.`,
+      hypothesis: `An integration could post each person's written standup into ${names.get(id)}, or a joint post could show remote teams how to skip the daily call.`,
+      message: `Hi, I work on an async standup tool for remote teams. ${names.get(id)} caught my eye because teams using it often still hold a daily call. My hypothesis is that written standups beside their work could replace that call for small remote teams. Would a short chat about whether your users would want that make sense? Kavya`,
+      question: `How do your users keep daily progress visible today?`,
+      caveat: "Check whether the product already connects to standup tools and confirm the contact is the right person.",
     }));
   };
   return { gen, calls };

@@ -5,7 +5,7 @@ export const COPY = {
   SUBTITLE: "Find newly launched tools worth a partnership call, from Product Hunt's last 7 days.",
   CAT_LABEL: "Categories",
   PRODUCT_LABEL: "Your product",
-  PRODUCT_HELP: "Used to write each outreach angle. Edit it to match what you sell.",
+  PRODUCT_HELP: "Used to rate each product's fit and write the outreach. Edit it to match what you sell.",
   BTN_RUN: "Find partners",
   BTN_RUNNING: "Finding partners…",
   HINT_CATEGORY: "Choose at least one category.",
@@ -28,7 +28,8 @@ export const COPY = {
   PROG_1: "Fetching featured launches from Product Hunt…",
   PROG_2: "Sorting launches into your categories…",
   PROG_3: "Ranking by votes and maker comments…",
-  PROG_4: "Writing outreach angles…",
+  PROG_FIT: "Rating how well each product fits yours…",
+  PROG_4: "Writing outreach messages…",
 
   STATUS_LIVE: "Live from Product Hunt",
   NOTE_PARTIAL: "Some launches could not be loaded, so this list may be incomplete.",
@@ -58,6 +59,20 @@ export const COPY = {
   NO_DESCRIPTION: "No description",
 
   EMPTY_RESULTS: "No featured launches in your categories in the last 7 days. Try switching on more categories.",
+  EMPTY_FILTERED: "No products match these filters.",
+  BTN_CLEAR_FILTERS: "Clear filters",
+  INITIAL_TITLE: "Who should you contact today?",
+  INITIAL_BODY:
+    "Press Find partners. You will get this week's featured Product Hunt launches in your categories, ranked, with the evidence behind each rank, the founder where Product Hunt shows one, and an outreach message you can edit. Nothing is ever sent for you.",
+  BTN_REFRESH: "Refresh data",
+  REFRESH_TIP: "Fetches new launches from Product Hunt instead of reusing the shared result.",
+  NOTE_REFRESH_THROTTLED:
+    "The data is under 5 minutes old, so it was not fetched again. This protects Product Hunt's shared request limit.",
+  NOTE_FIT_UNRATED:
+    "The AI could not rate the fit of some products, so their relevance counts as neutral. Press Find partners again to retry.",
+  NOTE_OUTREACH_TEMPLATE:
+    "The AI step was unavailable for some products, so their outreach is a labelled template. Press Find partners again to retry.",
+  NOTE_QUOTA: "Product Hunt's shared request limit is low right now, so a recent result is shown instead of new data.",
   ERR_NO_DATA: "We could not reach Product Hunt and there is no saved result yet. Please try again in a minute.",
   BTN_RETRY: "Try again",
   ERR_TOKEN: "Setup problem: the Product Hunt access token is missing or not accepted. The site owner needs to fix this.",

@@ -17,6 +17,12 @@ export type Product = {
   totalComments: number;
   /** Product Hunt's `makerReplies`: comments written by the makers. */
   makerComments: number;
+  /** Product Hunt's own ranking of the launch (null when it has none yet). */
+  dailyRank: number | null;
+  weeklyRank: number | null;
+  /** Review count and average rating from Product Hunt (rating is null with no reviews). */
+  reviewsCount: number;
+  reviewsRating: number | null;
   founder: Founder;
   topics: string[];
   flags: Array<"maker_comments_missing" | "founder_hidden">;

@@ -16,20 +16,27 @@ export const formatDate = (iso: string): string =>
 export const formatInt = (n: number): string => new Intl.NumberFormat("en-US").format(Math.round(n));
 export const oneDecimal = (n: number): string => (Math.round(n * 10) / 10).toFixed(1);
 
-/** The two contributions that add up to the score, so the breakdown can be checked by eye. */
-export function breakdownParts(score: { votesPart: number; makerPart: number }, weights: { votes: number; maker: number }) {
-  return { votes: 100 * weights.votes * score.votesPart, maker: 100 * weights.maker * score.makerPart };
+/** Only plain web links are ever rendered as links: a launch listing is outside data and may hold anything. */
+export function safeHttpUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
-export type SortMode = "score" | "closing" | "newest";
+/** A Twitter/X handle becomes a link only if it is a plain handle. */
+export const twitterUrl = (handle: string | null | undefined): string | null => (handle && /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : null);
 
-/** Re-orders the rows already on screen; ranks stay as the score order set by the server. */
-export function sortRows<T extends { rank: number; daysLeft: number; daysSinceLaunch: number }>(rows: T[], mode: SortMode): T[] {
-  const copy = [...rows];
-  if (mode === "closing") copy.sort((a, b) => a.daysLeft - b.daysLeft || a.rank - b.rank);
-  else if (mode === "newest") copy.sort((a, b) => a.daysSinceLaunch - b.daysSinceLaunch || a.rank - b.rank);
-  else copy.sort((a, b) => a.rank - b.rank);
-  return copy;
+export function ageText(minutes: number): string {
+  if (minutes < 1) return "less than a minute";
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  if (h < 48) return `${h} hour${h === 1 ? "" : "s"}`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? "" : "s"}`;
 }
 
 /** Reads the server's line-by-line JSON stream, however the bytes happen to be chunked. */
@@ -49,24 +56,5 @@ export function createLineParser(onLine: (line: string) => void) {
       if (buffer.trim()) onLine(buffer.trim());
       buffer = "";
     },
-  };
-}
-
-export type FitKey = "strong" | "partial" | "weak" | null;
-const FIT_ORDER: FitKey[] = ["strong", "partial", "weak", null];
-
-/** Bunches rows by fit (strong first), keeping the chosen order inside each bunch; empty bunches are left out. */
-export function groupByFit<T extends { fit: FitKey }>(rows: T[]): Array<{ fit: FitKey; rows: T[] }> {
-  return FIT_ORDER.map((fit) => ({ fit, rows: rows.filter((r) => r.fit === fit) })).filter((g) => g.rows.length > 0);
-}
-
-/** The one-line overview: how many of each fit, and how many windows close within 2 days. */
-export function summaryCounts(rows: Array<{ fit: FitKey; daysLeft: number }>) {
-  return {
-    strong: rows.filter((r) => r.fit === "strong").length,
-    partial: rows.filter((r) => r.fit === "partial").length,
-    weak: rows.filter((r) => r.fit === "weak").length,
-    unrated: rows.filter((r) => r.fit === null).length,
-    closing: rows.filter((r) => isClosingSoon(r.daysLeft)).length,
   };
 }

@@ -3,9 +3,7 @@
 import { CATEGORY_KEYS, isCategoryKey, type CategoryKey } from "./categories";
 
 export type Fit = "strong" | "partial" | "weak";
-const FITS: Fit[] = ["strong", "partial", "weak"];
 
-const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 
 // ---------- category sorting (D2) ----------
 
@@ -27,16 +25,18 @@ export function validateCategories(raw: unknown, requestedIds: string[]): { vali
   return { valid, badIds: requestedIds.filter((id) => !valid.has(id)) };
 }
 
-// ---------- outreach angles (D3) ----------
+// ---------- shared text checks for everything Gemini writes (fit reasons and outreach) ----------
 
-export const MAX_ANGLE_WORDS = 55; // prompt asks for about 45; a little slack before we act
-
+/** Empty compliments and hype that make outreach read as machine-written. */
 const BANNED = [
   "synergy",
+  "synergize",
   "game changer",
   "revolutionary",
   "cutting edge",
   "best in class",
+  "world class",
+  "next level",
   "unlock",
   "leverage",
   "touch base",
@@ -44,24 +44,48 @@ const BANNED = [
   "let's partner",
   "lets partner",
   "excited to",
+  "thrilled",
+  "delighted",
+  "hope this email",
+  "hope this finds",
+  "i was impressed",
+  "impressed by",
+  "innovative",
+  "love what you",
+  "big fan",
+  "reaching out",
+  "seamless",
+  "disrupt",
 ];
 
-const normalise = (s: string) => s.toLowerCase().replace(/[-‐-―]/g, " ").replace(/[’‘]/g, "'");
+/** Claims the model cannot know from a Product Hunt listing: goals, needs, traction, existing integrations. */
+const CLAIM_PATTERNS: RegExp[] = [
+  /\byou(?:'|’)?re (?:currently )?(?:looking|seeking|searching|hiring|raising)\b/,
+  /\byou are (?:currently )?(?:looking|seeking|searching)\b/,
+  /\b(?:seeking|looking for) (?:a |an )?(?:distribution )?partner/,
+  /\b(?:we|our product) (?:already )?(?:integrates?|connects?) with (?:you|your)\b/,
+  /\bour (?:existing|current) integration with (?:you|your)\b/,
+  /\byour (?:goal|mission) is\b/,
+  /\byou want to\b/,
+  /\byou(?:'|’)ve (?:raised|grown|scaled)\b/,
+  /\bcongrat(?:ulation)?s on (?:your )?(?:funding|raise|round)\b/,
+];
 
-function trimToSentences(text: string, limit: number): string | null {
-  if (words(text).length <= limit) return text;
-  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [];
-  let out = "";
-  for (const s of sentences) {
-    if (words(out + s).length > limit) break;
-    out += s;
-  }
-  return out.trim() ? out.trim() : null;
+const normalise = (s: string) => s.toLowerCase().replace(/[-\u2010-\u2015]/g, " ").replace(/[\u2019\u2018]/g, "'");
+
+export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
+
+/** First banned phrase found, or null. */
+export function bannedHit(text: string): string | null {
+  const t = normalise(text);
+  return BANNED.find((b) => t.includes(b)) ?? null;
 }
 
-/** Digits, currency amounts and percentages in the angle must also appear in the product's own text. */
-function inventedNumber(angle: string, source: string): boolean {
-  const tokens = angle.match(/[$€£]\s?\d[\d,.]*|\d[\d,.]*%?/g) ?? [];
+export const claimsHit = (text: string): boolean => CLAIM_PATTERNS.some((rx) => rx.test(normalise(text)));
+
+/** Digits, currency amounts and percentages must also appear in the text the model was shown. */
+export function inventedNumber(text: string, source: string): boolean {
+  const tokens = text.match(/[$\u20ac\u00a3]\s?\d[\d,.]*|\d[\d,.]*%?/g) ?? [];
   const src = source.replace(/,/g, "");
   return tokens.some((t) => {
     const digits = t.replace(/[^\d.]/g, "").replace(/\.$/, "");
@@ -69,43 +93,48 @@ function inventedNumber(angle: string, source: string): boolean {
   });
 }
 
-function mostlyNotEnglish(s: string): boolean {
+export function mostlyNotEnglish(s: string): boolean {
   const letters = s.match(/\p{L}/gu) ?? [];
   if (letters.length === 0) return false;
-  const nonLatin = letters.filter((c) => !/[A-Za-zÀ-ÿ]/.test(c)).length;
+  const nonLatin = letters.filter((c) => !/[A-Za-z\u00C0-\u00FF]/.test(c)).length;
   return nonLatin / letters.length > 0.3;
 }
 
-export type AngleCheck = { angle: string | null; fit: Fit | null; problems: string[] };
+/** Strips emoji, turns exclamation marks into full stops and tidies spaces. */
+export const tidy = (s: string) =>
+  s.replace(/\p{Extended_Pictographic}\uFE0F?/gu, "").replace(/!/g, ".").replace(/\.{2,}/g, ".").replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
 
-/** `source` is everything the model saw for this product. */
-export function checkAngle(raw: unknown, source: string): AngleCheck {
-  const o = (raw ?? {}) as { angle?: unknown; fit?: unknown };
-  const problems: string[] = [];
+const COMMON = new Set([
+  "about", "async", "asynchronous", "build", "built", "builds", "daily", "their", "there", "these", "those", "which", "while", "would", "could",
+  "should", "teams", "team", "remote", "standup", "standups", "software", "platform", "product", "products", "tool", "tools", "helps", "using",
+  "workflow", "workflows", "other", "every", "makes", "make", "better", "simple", "easy", "with", "from", "that", "this", "your", "have", "just",
+  "into", "more", "most", "work", "works", "working", "company", "companies", "business", "users", "people", "launch", "launched", "world",
+]);
 
-  const fit = FITS.includes(o.fit as Fit) ? (o.fit as Fit) : null;
-  if (!fit) problems.push("fit");
+export const contentWords = (s: string): Set<string> =>
+  new Set((normalise(s).match(/[a-z][a-z0-9]{4,}/g) ?? []).filter((w) => !COMMON.has(w)));
 
-  let angle = typeof o.angle === "string" ? o.angle : "";
-  // Emoji and exclamation marks are stripped rather than failing the whole answer.
-  angle = angle.replace(/\p{Extended_Pictographic}️?/gu, "").replace(/!/g, ".").replace(/\.{2,}/g, ".").replace(/\s+/g, " ").trim();
-
-  if (!angle) {
-    problems.push("empty");
-    return { angle: null, fit, problems };
-  }
-  if (words(angle).length > MAX_ANGLE_WORDS) {
-    const trimmed = trimToSentences(angle, MAX_ANGLE_WORDS);
-    if (trimmed) angle = trimmed;
-    else problems.push("too_long");
-  }
-  const lower = normalise(angle);
-  if (BANNED.some((b) => lower.includes(b))) problems.push("banned_phrase");
-  if (/\[redacted\]/i.test(angle)) problems.push("redacted_text");
-  if (inventedNumber(angle, source)) problems.push("invented_number");
-  if (mostlyNotEnglish(angle)) problems.push("not_english");
-
-  return { angle: problems.some((p) => p !== "fit") ? null : angle, fit, problems };
+/**
+ * Grounded means it names the product, or uses at least one distinctive word from the product's
+ * own text. A line that could be pasted under any product fails this.
+ */
+export function isGrounded(text: string, source: string, name: string): boolean {
+  const t = normalise(text);
+  if (name.trim().length >= 3 && t.includes(normalise(name.trim()))) return true;
+  const own = contentWords(source);
+  return [...contentWords(text)].some((w) => own.has(w));
 }
 
-export const sameAngle = (a: string, b: string) => normalise(a).replace(/\W+/g, " ").trim() === normalise(b).replace(/\W+/g, " ").trim();
+/** Shortest prefix of whole sentences within the word limit, or null if even one sentence is too long. */
+export function trimToSentences(text: string, limit: number): string | null {
+  if (words(text).length <= limit) return text;
+  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [];
+  let out = "";
+  for (const sentence of sentences) {
+    if (words(out + sentence).length > limit) break;
+    out += sentence;
+  }
+  return out.trim() ? out.trim() : null;
+}
+
+export const sameText = (a: string, b: string) => normalise(a).replace(/\W+/g, " ").trim() === normalise(b).replace(/\W+/g, " ").trim();

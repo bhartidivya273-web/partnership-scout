@@ -2,7 +2,7 @@
 // pipeline steps as they begin ("honest progress", PRD A3), then the result or a plain error.
 import { COPY } from "@/lib/copy";
 import { getDeps } from "@/lib/runtime";
-import { runScout, ScoutError } from "@/lib/scout";
+import { runScout, ScoutError, type ScoutInput } from "@/lib/scout";
 import type { ScoutEvent } from "@/lib/result";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const maxDuration = 300;
 const MAX_BODY = 4_000;
 
 export async function POST(request: Request) {
-  let body: { categories?: unknown; productText?: unknown } = {};
+  let body: ScoutInput = {};
   try {
     const text = await request.text();
     if (text.length <= MAX_BODY) body = JSON.parse(text);

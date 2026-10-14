@@ -14,7 +14,8 @@ query Featured($postedAfter: DateTime!, $first: Int!, $after: String) {
     pageInfo { hasNextPage endCursor }
     edges { node {
       id name tagline description url website createdAt votesCount commentsCount makerReplies
-      makers { id name username headline twitterUsername websiteUrl }
+      dailyRank weeklyRank reviewsCount reviewsRating
+      makers { id name username headline url followersCount twitterUsername websiteUrl }
       topics { edges { node { name } } }
     } }
   }

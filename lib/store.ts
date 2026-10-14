@@ -2,6 +2,8 @@
 // Production uses one small Supabase table (scout_cache) through Supabase's built-in web interface,
 // so there is no extra package. Without Supabase settings the app falls back to memory, which still
 // works but is only shared inside one server instance, so the page says "memory" in the run details.
+import { logEvent } from "./log";
+
 export type Store = {
   kind: "supabase" | "memory";
   get<T>(key: string): Promise<T | null>;
@@ -152,28 +154,30 @@ export function getStore(env: Record<string, string | undefined> = process.env):
  * last layer before an error.)
  */
 export function safeStore(store: Store): Store {
-  const guard = <A extends unknown[], R>(fn: (...a: A) => Promise<R>, fallback: R) =>
+  const guard = <A extends unknown[], R>(fn: (...a: A) => Promise<R>, fallback: R, op = "call") =>
     async (...a: A): Promise<R> => {
       try {
         return await fn(...a);
       } catch {
+        logEvent("store.failed", { op, kind: store.kind });
         return fallback;
       }
     };
   return {
     kind: store.kind,
-    get: guard(store.get.bind(store), null) as Store["get"],
-    set: guard(store.set.bind(store), undefined),
-    del: guard(store.del.bind(store), undefined),
+    get: guard(store.get.bind(store), null, "get") as Store["get"],
+    set: guard(store.set.bind(store), undefined, "set"),
+    del: guard(store.del.bind(store), undefined, "del"),
     // If the lock cannot be asked for, proceed rather than showing an error while live data is available.
-    setNX: guard(store.setNX.bind(store), true),
+    setNX: guard(store.setNX.bind(store), true, "setNX"),
     mget: (async (keys: string[]) => {
       try {
         return await store.mget(keys);
       } catch {
+        logEvent("store.failed", { op: "mget", kind: store.kind });
         return keys.map(() => null);
       }
     }) as Store["mget"],
-    mset: guard(store.mset.bind(store), undefined),
+    mset: guard(store.mset.bind(store), undefined, "mset"),
   };
 }

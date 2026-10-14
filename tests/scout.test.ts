@@ -14,7 +14,7 @@ function setup(over: Partial<Deps> = {}, ph = fakePH(251), ai = fakeGemini()) {
 const run = (deps: Deps, input: { categories?: unknown; productText?: unknown } = { categories: ALL }) => runScout(input, deps);
 
 describe("pipeline: normal runs (E1, E2)", () => {
-  it("E1: a first run goes live, reads 13 pages, and shows 20 ranked rows with angles", async () => {
+  it("E1: a first run goes live, reads 13 pages, and shows 20 ranked rows with structured outreach", async () => {
     const { deps, ph } = setup();
     const r = await run(deps);
     expect(r.source).toBe("live");
@@ -22,7 +22,7 @@ describe("pipeline: normal runs (E1, E2)", () => {
     expect(r.scanned).toBe(251);
     expect(r.shown).toBe(20);
     expect(r.items.map((i) => i.rank)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
-    expect(r.items.every((i) => i.angle.length > 0)).toBe(true);
+    expect(r.items.every((i) => i.outreach.message.length > 0 && i.outreach.question.endsWith("?"))).toBe(true);
     expect(r.run.pages).toBe(13);
     expect(r.windowEnd).toBe(NOW.toISOString());
   });
@@ -36,17 +36,19 @@ describe("pipeline: normal runs (E1, E2)", () => {
     expect(ph.calls.n).toBe(before);
   });
 
-  it("B12 / A7: changing the product text re-writes angles but never refetches Product Hunt", async () => {
+  it("B12 / A7: changing the product text re-writes fit and outreach but never refetches Product Hunt", async () => {
     const { deps, ph, ai } = setup();
     await run(deps, { categories: ALL, productText: "Software for async standups" });
     const phBefore = ph.calls.n;
-    const anglesBefore = ai.calls.angles;
+    const outreachBefore = ai.calls.outreach;
+    const fitBefore = ai.calls.fit;
     await run(deps, { categories: ALL, productText: "Chat software for dentists" });
     expect(ph.calls.n).toBe(phBefore);
-    expect(ai.calls.angles).toBeGreaterThan(anglesBefore);
+    expect(ai.calls.outreach).toBeGreaterThan(outreachBefore);
+    expect(ai.calls.fit).toBeGreaterThan(fitBefore);
   });
 
-  it("repeating the same text reuses the saved angles and calls Gemini again for nothing", async () => {
+  it("repeating the same text reuses the saved fit and outreach and calls Gemini again for nothing", async () => {
     const { deps, ai } = setup();
     await run(deps);
     const c = { ...ai.calls };
@@ -78,7 +80,7 @@ describe("pipeline: single-flight refresh (PRD A2)", () => {
   it("with a saved result available, a visitor during a refresh gets it labelled, with no new requests", async () => {
     const { deps, ph, store } = setup();
     await run(deps); // creates the saved result
-    await store.del("ps:v1:pool:fresh"); // cache expired, saved result remains
+    await store.del("ps:v2:pool:fresh"); // cache expired, saved result remains
     ph.calls.n = 0;
     const [a, b] = await Promise.all([run(deps), run(deps)]);
     const sources = [a.source, b.source].sort();
@@ -91,7 +93,7 @@ describe("pipeline: single-flight refresh (PRD A2)", () => {
   it("the lock is released after a run, so the next expired cache can refresh again", async () => {
     const { deps, store, ph } = setup();
     await run(deps);
-    await store.del("ps:v1:pool:fresh");
+    await store.del("ps:v2:pool:fresh");
     ph.calls.n = 0;
     const r = await run(deps);
     expect(r.source).toBe("live");
@@ -108,7 +110,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   it("E3: Product Hunt fails after a good run: the saved result is served with its time, labelled", async () => {
     const good = setup();
     await run(good.deps);
-    await good.store.del("ps:v1:pool:fresh");
+    await good.store.del("ps:v2:pool:fresh");
     const bad = fakePH(251, { failWith: 429 });
     const r = await run({ ...good.deps, fetchImpl: bad.fetchImpl });
     expect(r.source).toBe("saved");
@@ -128,24 +130,24 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   it("A4: with Product Hunt and storage both empty, the bundled snapshot is shown, labelled as a snapshot", async () => {
     const live = setup();
     await run(live.deps);
-    const snapshot = await live.store.get<Bundle>("ps:v1:pool:last");
+    const snapshot = await live.store.get<Bundle>("ps:v2:pool:last");
     const { deps } = setup({ snapshot }, fakePH(251, { failWith: 503 }), fakeGemini({ failClassify: true, failAngles: true }));
     const r = await run(deps);
     expect(r.source).toBe("snapshot");
     expect(r.items.length).toBeGreaterThan(0);
-    expect(r.items.every((i) => i.angle)).toBe(true);
+    expect(r.items.every((i) => i.outreach.message)).toBe(true);
   });
 
-  it("the snapshot keeps its real angles and categories without any AI call (angles seeded)", async () => {
+  it("the snapshot keeps its real fit, outreach and categories without any AI call (seeded)", async () => {
     const live = setup();
     const first = await run(live.deps);
-    const snapshot = await live.store.get<Bundle>("ps:v1:pool:last");
+    const snapshot = await live.store.get<Bundle>("ps:v2:pool:last");
     const ai = fakeGemini({ failClassify: true, failAngles: true });
     const { deps } = setup({ snapshot }, fakePH(251, { failWith: 503 }), ai);
     const r = await run(deps);
-    expect(ai.calls).toEqual({ classify: 0, angles: 0 });
-    expect(r.items.map((i) => i.angle)).toEqual(first.items.map((i) => i.angle));
-    expect(r.items.every((i) => i.angleSource === "gemini")).toBe(true);
+    expect(ai.calls).toEqual({ classify: 0, fit: 0, outreach: 0 });
+    expect(r.items.map((i) => i.outreach.message)).toEqual(first.items.map((i) => i.outreach.message));
+    expect(r.items.every((i) => i.outreach.source === "gemini")).toBe(true);
   });
 
   it("E5: a missing token is a clear setup error and no request is made", async () => {
@@ -159,7 +161,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   it("E5: a rejected token is also a setup error, even if older data exists", async () => {
     const good = setup();
     await run(good.deps);
-    await good.store.del("ps:v1:pool:fresh");
+    await good.store.del("ps:v2:pool:fresh");
     const err = (await run({ ...good.deps, fetchImpl: fakePH(251, { failWith: 401 }).fetchImpl }).catch((e) => e)) as ScoutError;
     expect(err.code).toBe("token");
   });
@@ -167,7 +169,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   it("E6: when the shared quota is low, no Product Hunt request is made and the saved result is used", async () => {
     const good = setup();
     await run(good.deps);
-    await good.store.del("ps:v1:pool:fresh");
+    await good.store.del("ps:v2:pool:fresh");
     await good.store.set("ps:v1:quota", { remaining: 300, resetAt: NOW.getTime() + 600_000 });
     good.ph.calls.n = 0;
     const r = await run(good.deps);
@@ -179,7 +181,7 @@ describe("pipeline: fallbacks (E3, E4, E5, E6)", () => {
   it("a low-quota note that has passed its reset time no longer blocks a live run", async () => {
     const good = setup();
     await run(good.deps);
-    await good.store.del("ps:v1:pool:fresh");
+    await good.store.del("ps:v2:pool:fresh");
     await good.store.set("ps:v1:quota", { remaining: 300, resetAt: NOW.getTime() - 1000 });
     expect((await run(good.deps)).source).toBe("live");
   });
@@ -229,11 +231,13 @@ describe("pipeline: edge cases (E7 to E13)", () => {
     expect(r.items.length).toBeGreaterThan(0); // fake posts carry the Task Management topic
   });
 
-  it("E10: if Gemini angles fail, every row has a labelled template angle", async () => {
+  it("E10: if Gemini fit and outreach fail, every row has labelled template outreach and no fit", async () => {
     const { deps } = setup({}, fakePH(60), fakeGemini({ failAngles: true }));
     const r = await run(deps);
-    expect(r.items.every((i) => i.angleSource === "template" && i.fit === null)).toBe(true);
-    expect(r.run.angleMethod).toBe("template");
+    expect(r.items.every((i) => i.outreach.source === "template" && i.fit === null)).toBe(true);
+    expect(r.notes).toContain("outreach_template");
+    expect(r.notes).toContain("fit_unrated");
+    expect(r.run.outreachMethod).toBe("template");
   });
 
   it("E11: with no Gemini key at all the page still works", async () => {
@@ -241,7 +245,7 @@ describe("pipeline: edge cases (E7 to E13)", () => {
     const r = await run(deps);
     expect(r.items.length).toBeGreaterThan(0);
     expect(r.run.categoryMethod).toBe("tags");
-    expect(r.run.angleMethod).toBe("template");
+    expect(r.run.outreachMethod).toBe("template");
   });
 
   it("E12: a page that keeps failing gives a partial list with a notice, and is not saved as the last good result", async () => {
@@ -257,7 +261,7 @@ describe("pipeline: edge cases (E7 to E13)", () => {
     const r = await run(deps);
     expect(r.notes).toContain("partial");
     expect(r.scanned).toBe(40);
-    expect(await store.get("ps:v1:pool:last")).toBeNull();
+    expect(await store.get("ps:v2:pool:last")).toBeNull();
     expect(n).toBeGreaterThan(0);
   });
 
@@ -303,29 +307,30 @@ describe("pipeline: a weak run never replaces a good saved result", () => {
   it("a run where Gemini failed keeps the earlier good saved result untouched", async () => {
     const good = setup();
     await run(good.deps);
-    const goodLast = await good.store.get<Bundle>("ps:v1:pool:last");
+    const goodLast = await good.store.get<Bundle>("ps:v2:pool:last");
     // A new, empty store that only holds the earlier saved result (no category or angle cache).
     const store = createMemoryStore();
-    await store.set("ps:v1:pool:last", goodLast);
+    await store.set("ps:v2:pool:last", goodLast);
     const weak = await run({ ...good.deps, store, gen: fakeGemini({ failClassify: true, failAngles: true }).gen });
     expect(weak.source).toBe("live");
     expect(weak.notes).toContain("category_topic");
-    expect(weak.run.angleMethod).toBe("template");
-    expect(await store.get("ps:v1:pool:last")).toEqual(goodLast);
+    expect(weak.run.outreachMethod).toBe("template");
+    expect(await store.get("ps:v2:pool:last")).toEqual(goodLast);
   });
 
   it("with nothing saved yet, a weak run is still saved (real data beats nothing)", async () => {
     const { deps, store } = setup({}, fakePH(60), fakeGemini({ failClassify: true, failAngles: true }));
     await run(deps);
-    expect(await store.get("ps:v1:pool:last")).not.toBeNull();
+    expect(await store.get("ps:v2:pool:last")).not.toBeNull();
   });
 
   it("fallback guesses are not kept as seeds, so the next visitor retries Gemini", async () => {
     const { deps, store } = setup({}, fakePH(60), fakeGemini({ failClassify: true, failAngles: true }));
     await run(deps);
-    const saved = await store.get<Bundle>("ps:v1:pool:last");
+    const saved = await store.get<Bundle>("ps:v2:pool:last");
     expect(saved?.classifications).toEqual({});
-    expect(saved?.angles).toEqual({});
+    expect(saved?.outreach).toEqual({});
+    expect(saved?.fits).toEqual({});
   });
 
   it("a degraded cached pool is retried quickly: the next run asks Gemini again", async () => {
@@ -343,12 +348,12 @@ describe("pipeline: first-principles guards", () => {
   it("an empty live answer from Product Hunt never replaces a good saved result", async () => {
     const good = setup();
     await run(good.deps);
-    const goodLast = await good.store.get<Bundle>("ps:v1:pool:last");
+    const goodLast = await good.store.get<Bundle>("ps:v2:pool:last");
     const store = createMemoryStore();
-    await store.set("ps:v1:pool:last", goodLast);
+    await store.set("ps:v2:pool:last", goodLast);
     const r = await run({ ...good.deps, store, fetchImpl: fakePH(0).fetchImpl });
     expect(r.items).toEqual([]);
-    expect(await store.get("ps:v1:pool:last")).toEqual(goodLast);
+    expect(await store.get("ps:v2:pool:last")).toEqual(goodLast);
   });
 
   it("a storage call that hangs is abandoned and the page still answers", async () => {
@@ -358,5 +363,171 @@ describe("pipeline: first-principles guards", () => {
     const { deps } = setup({ store: hanging });
     const r = await run(deps);
     expect(r.items.length).toBeGreaterThan(0);
+  });
+});
+
+describe("pipeline: ranking, refresh and evidence (product upgrade)", () => {
+  const named = (i: number) =>
+    rawPost(i, {
+      makers: [
+        { id: "0", name: "[REDACTED]", username: "[REDACTED]", url: "[REDACTED]" },
+        { id: String(100 + i), name: `Iris Tu${i}`, username: `iris${i}`, headline: "Builder", url: `https://www.producthunt.com/@iris${i}?utm_source=x`, followersCount: 12 },
+      ],
+      dailyRank: 3,
+      weeklyRank: 11,
+      reviewsCount: 4,
+      reviewsRating: 4.5,
+    });
+
+  it("relevance reaches the ranking: strong fits rise above equal-engagement partial fits", async () => {
+    const ai = fakeGemini({ fitFor: (id) => (Number(id) <= 3 ? "strong" : "weak") });
+    const flat = (i: number) => rawPost(i, { votesCount: 100, makerReplies: 5 }); // identical engagement
+    const { deps } = setup({}, fakePH(30, { makePost: flat }), ai);
+    const r = await run(deps);
+    expect(r.items.slice(0, 3).map((i) => i.fit)).toEqual(["strong", "strong", "strong"]);
+    expect(r.items.slice(3).every((i) => i.fit === "weak")).toBe(true);
+  });
+
+  it("presets and custom weights re-rank the cached pool without any Product Hunt request", async () => {
+    const ai = fakeGemini({ fitFor: (id) => (id === "1" ? "strong" : "weak") });
+    const make = (i: number) => rawPost(i, { votesCount: i === 1 ? 5 : 100 + i, makerReplies: i === 1 ? 1 : 9 });
+    const { deps, ph } = setup({}, fakePH(40, { makePost: make }), ai);
+    const balanced = await runScout({ categories: ALL }, deps);
+    const calls = ph.calls.n;
+    const fitFirst = await runScout({ categories: ALL, preset: "fit" }, deps);
+    const engagement = await runScout({ categories: ALL, preset: "engagement" }, deps);
+    const custom = await runScout({ categories: ALL, weights: { votes: 1 } }, deps);
+    expect(ph.calls.n).toBe(calls);
+    expect(fitFirst.items[0].id).toBe("1"); // the only strong fit wins when relevance dominates
+    expect(engagement.items[0].id).not.toBe("1");
+    expect(balanced.preset).toBe("balanced");
+    expect(fitFirst.preset).toBe("fit");
+    expect(custom.preset).toBe("custom");
+    expect(custom.weights.votes).toBeCloseTo(100, 6);
+    expect(custom.items[0].upvotes).toBeGreaterThanOrEqual(custom.items[1].upvotes); // votes-only order
+  });
+
+  it("an unknown preset or junk weights fall back to the balanced default", async () => {
+    const { deps } = setup({}, fakePH(30));
+    expect((await runScout({ categories: ALL, preset: "nonsense" }, deps)).preset).toBe("balanced");
+    expect((await runScout({ categories: ALL, weights: { votes: "x", maker: -3 } }, deps)).weights).toMatchObject({ votes: 20, maker: 20, relevance: 30 });
+  });
+
+  it("the shortlist is the top 40 by engagement, and every shown row was really rated", async () => {
+    const { deps } = setup({}, fakePH(120), fakeGemini());
+    const r = await run(deps);
+    expect(r.run.shortlisted).toBe(40);
+    expect(r.items.every((i) => i.fit !== null && i.relevance)).toBe(true);
+  });
+
+  it("a forced refresh inside 5 minutes is refused: cached pool, note, zero Product Hunt requests", async () => {
+    const { deps, ph } = setup();
+    await run(deps);
+    const before = ph.calls.n;
+    const r = await runScout({ categories: ALL, refresh: true }, deps);
+    expect(ph.calls.n).toBe(before);
+    expect(r.source).toBe("cached");
+    expect(r.notes).toContain("refresh_throttled");
+    expect(r.refreshAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it("a forced refresh after 5 minutes fetches live data again", async () => {
+    const { deps, ph } = setup();
+    await run(deps);
+    const before = ph.calls.n;
+    const later = { ...deps, now: () => new Date(NOW.getTime() + 6 * 60_000) };
+    const r = await runScout({ categories: ALL, refresh: true }, later);
+    expect(ph.calls.n).toBe(before + 13);
+    expect(r.source).toBe("live");
+    expect(r.refreshAfterSeconds).toBe(300);
+  });
+
+  it("a forced refresh that cannot go live keeps the pool it started from and says why", async () => {
+    const good = setup();
+    await run(good.deps);
+    const later = { ...good.deps, now: () => new Date(NOW.getTime() + 6 * 60_000), fetchImpl: fakePH(60, { failWith: 503 }).fetchImpl };
+    const r = await runScout({ categories: ALL, refresh: true }, later);
+    expect(r.source).toBe("cached");
+    expect(r.notes).toContain("live_failed");
+    expect(r.items.length).toBeGreaterThan(0);
+  });
+
+  it("the visible founder's real name travels to the outreach prompt; hidden makers never do", async () => {
+    const seen: string[] = [];
+    const base = fakeGemini();
+    const spy = async (req: Parameters<typeof base.gen>[0]) => (seen.push(req.user), base.gen(req));
+    const { deps } = setup({ gen: spy }, fakePH(30, { makePost: named }));
+    const r = await run(deps);
+    const outreachPrompt = seen.find((u) => u.startsWith("Prepare outreach")) ?? "";
+    expect(outreachPrompt).toContain('"founderName":"Iris Tu');
+    expect(outreachPrompt.toUpperCase()).not.toContain("REDACTED");
+    expect(r.items[0].founder.makers[0]).toMatchObject({ profileUrl: expect.stringMatching(/^https:\/\/www\.producthunt\.com\/@iris\d+$/), followersCount: 12 });
+  });
+
+  it("every row carries evidence, a deterministic why, a responsiveness note and what is missing", async () => {
+    const { deps } = setup({}, fakePH(30, { makePost: named }));
+    const r = await run(deps);
+    const i = r.items[0];
+    expect(i.evidence.total).toBe(5);
+    expect(i.evidence.checks).toHaveLength(5);
+    expect(i.why.join(" ")).toContain("maker comments (per Product Hunt)");
+    expect(i.why.join(" ")).toContain("#3 of the day, #11 of the week");
+    expect(i.why.join(" ")).toContain("4 Product Hunt reviews, average 4.5 out of 5");
+    expect(["high", "moderate", "low", "none"]).toContain(i.responsiveness.level);
+    expect(i.missing.some((m) => m.includes("no email addresses"))).toBe(true);
+    expect(i.priority.total).toBeGreaterThan(0);
+    expect(Object.keys(i.priority.parts)).toEqual(["votes", "maker", "momentum", "relevance", "window", "evidence"]);
+  });
+
+  it("missing maker information is stated, never filled in", async () => {
+    const { deps } = setup({}, fakePH(30)); // default fake posts have only a hidden maker
+    const r = await run(deps);
+    const i = r.items[0];
+    expect(i.founder.founderSource).toBe("none");
+    expect(i.founder.makers).toEqual([]);
+    expect(i.missing.join(" ")).toContain("Founder not listed");
+    expect(i.outreach.message.startsWith("Hi,")).toBe(true);
+  });
+
+  it("records how long each stage took", async () => {
+    const { deps } = setup({}, fakePH(60));
+    const r = await run(deps);
+    expect(Object.keys(r.run.timings).sort()).toEqual(expect.arrayContaining(["fetch", "fit", "outreach"]));
+  });
+});
+
+describe("pipeline: results never depend on cache state", () => {
+  it("a cold run and a warm run give the same products, order and fit ratings", async () => {
+    const make = (i: number) => rawPost(i, { votesCount: 20 + ((i * 37) % 300), makerReplies: (i * 11) % 23 });
+    const ai = fakeGemini({ fitFor: (id) => (["strong", "partial", "weak"] as const)[Number(id) % 3] });
+    const { deps } = setup({}, fakePH(120, { makePost: make }), ai);
+    const cold = await run(deps);
+    const warm = await run(deps);
+    const sig = (r: Awaited<ReturnType<typeof run>>) => r.items.map((i) => `${i.rank}:${i.id}:${i.fit}:${i.priority.total}`);
+    expect(cold.source).toBe("live");
+    expect(warm.source).toBe("cached");
+    expect(sig(warm)).toEqual(sig(cold));
+  });
+
+  it("the same holds when only the fit and outreach caches are warm (a different instance of the pool)", async () => {
+    const make = (i: number) => rawPost(i, { votesCount: 20 + ((i * 37) % 300), makerReplies: (i * 11) % 23 });
+    const ai = fakeGemini({ fitFor: (id) => (["strong", "partial", "weak"] as const)[Number(id) % 3] });
+    const first = setup({}, fakePH(120, { makePost: make }), ai);
+    const cold = await run(first.deps);
+    await first.store.del("ps:v2:pool:fresh");
+    await first.store.del("ps:v2:pool:last");
+    const again = await run(first.deps);
+    expect(again.items.map((i) => i.id)).toEqual(cold.items.map((i) => i.id));
+    expect(again.items.map((i) => i.fit)).toEqual(cold.items.map((i) => i.fit));
+  });
+
+  it("only the shortlist (top 40 on fit-independent signals) can be shown, and relevance re-orders inside it", async () => {
+    const make = (i: number) => rawPost(i, { votesCount: 1000 - i, makerReplies: 10 }); // lower id = more votes
+    const ai = fakeGemini({ fitFor: (id) => (Number(id) === 39 ? "strong" : "weak") });
+    const { deps } = setup({}, fakePH(80, { makePost: make }), ai);
+    const r = await run(deps);
+    const ids = r.items.map((i) => Number(i.id));
+    expect(ids.every((id) => id <= 40)).toBe(true); // nothing from outside the shortlist
+    expect(ids[0]).toBe(39); // a strong fit inside the shortlist rises to the top
   });
 });

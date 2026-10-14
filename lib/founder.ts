@@ -5,6 +5,8 @@ export type RawMaker = {
   name?: string | null;
   username?: string | null;
   headline?: string | null;
+  url?: string | null;
+  followersCount?: number | null;
   twitterUsername?: string | null;
   websiteUrl?: string | null;
 };
@@ -13,6 +15,9 @@ export type VisibleMaker = {
   name: string;
   username: string | null;
   headline: string | null;
+  /** Canonical Product Hunt profile link (tracking parameters removed); only for visible makers. */
+  profileUrl: string | null;
+  followersCount: number | null;
   twitterUsername: string | null;
   websiteUrl: string | null;
 };
@@ -34,6 +39,19 @@ export function isHiddenMaker(m: RawMaker): boolean {
   return String(m.id ?? "").trim() === "0";
 }
 
+/** Keeps only genuine Product Hunt profile links and drops the tracking query string. */
+export function canonicalProfileUrl(url: string | null | undefined): string | null {
+  const u = (url ?? "").trim();
+  if (!u || isRedacted(u)) return null;
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== "https:" || !/(^|\.)producthunt\.com$/.test(parsed.hostname) || !parsed.pathname.startsWith("/@")) return null;
+    return `https://www.producthunt.com${parsed.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
 function clean(v: string | null | undefined): string | null {
   const s = (v ?? "").trim();
   return s && !isRedacted(s) ? s : null;
@@ -48,6 +66,8 @@ export function resolveFounder(makers: RawMaker[] | null | undefined): Founder {
       name: (m.name as string).trim(),
       username: clean(m.username),
       headline: clean(m.headline),
+      profileUrl: canonicalProfileUrl(m.url),
+      followersCount: typeof m.followersCount === "number" && m.followersCount >= 0 ? Math.trunc(m.followersCount) : null,
       twitterUsername: clean(m.twitterUsername),
       websiteUrl: clean(m.websiteUrl),
     }));

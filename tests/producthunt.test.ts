@@ -189,4 +189,51 @@ describe("candidate pool (PRD F6, F8, F10 to F13, section 10)", () => {
     expect(p.upvotes).toBe(0);
     expect(p.topics).toEqual([]);
   });
+
+  it("S1: only genuine Product Hunt launches enter the pool (synthetic or foreign URLs are dropped)", () => {
+    const pool = buildPool(
+      [
+        rawPost(1),
+        rawPost(2, { url: "https://example.com/fake-launch" }),
+        rawPost(3, { url: "http://www.producthunt.com/posts/insecure" }),
+        rawPost(4, { url: "https://producthunt.com.evil.example/posts/x" }),
+        rawPost(5, { url: null }),
+        rawPost(6, { url: "https://www.producthunt.com/products/real-one?utm_source=x" }),
+      ],
+      NOW,
+    );
+    expect(pool.map((p) => p.id)).toEqual(["1", "6"]);
+  });
+
+  it("carries Product Hunt rank and review evidence, and leaves missing values empty instead of inventing them", () => {
+    const [a, b] = buildPool(
+      [rawPost(1, { dailyRank: 4, weeklyRank: 19, reviewsCount: 7, reviewsRating: 4.6667 }), rawPost(2, { dailyRank: 0, reviewsCount: 0, reviewsRating: 5 })],
+      NOW,
+    );
+    expect(a).toMatchObject({ dailyRank: 4, weeklyRank: 19, reviewsCount: 7, reviewsRating: 4.7 });
+    expect(b).toMatchObject({ dailyRank: null, weeklyRank: null, reviewsCount: 0, reviewsRating: null });
+  });
+
+  it("maker details come only from visible makers, with a clean profile link and follower count", () => {
+    const [p] = buildPool(
+      [
+        rawPost(1, {
+          makers: [
+            { id: "0", name: "[REDACTED]", username: "[REDACTED]", url: "[REDACTED]", followersCount: 260 },
+            { id: "42", name: "Iris Tu", username: "iris_tu", headline: "Builder", url: "https://www.producthunt.com/@iris_tu?utm_source=api&utm_medium=x", followersCount: 31, twitterUsername: "iris", websiteUrl: "https://iris.example" },
+          ],
+        }),
+      ],
+      NOW,
+    );
+    expect(p.founder.visibleMakers).toEqual([
+      { name: "Iris Tu", username: "iris_tu", headline: "Builder", profileUrl: "https://www.producthunt.com/@iris_tu", followersCount: 31, twitterUsername: "iris", websiteUrl: "https://iris.example" },
+    ]);
+    expect(JSON.stringify(p.founder)).not.toContain("260"); // a hidden maker's follower count is never attributed
+  });
+
+  it("rejects profile links that are not on Product Hunt", () => {
+    const [p] = buildPool([rawPost(1, { makers: [{ id: "1", name: "A B", username: "ab", url: "https://evil.example/@ab" }] })], NOW);
+    expect(p.founder.visibleMakers[0].profileUrl).toBeNull();
+  });
 });

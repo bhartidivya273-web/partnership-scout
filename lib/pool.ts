@@ -6,6 +6,18 @@ import { truncateDescription } from "./prompts";
 import type { RawPost } from "./producthunt";
 import type { Product } from "./types";
 
+/** A launch only counts as real if it points at Product Hunt itself: test fixtures and junk never do. */
+export function isProductHuntUrl(url: unknown): boolean {
+  if (typeof url !== "string") return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && /(^|\.)producthunt\.com$/.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+const optInt = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : null);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const int = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0);
 
@@ -20,7 +32,7 @@ export function buildPool(raw: RawPost[], now: Date): Product[] {
   for (const post of raw) {
     const id = String(post.id ?? "");
     const launchedAt = typeof post.createdAt === "string" ? post.createdAt : null;
-    if (!id || seen.has(id) || !inWindow(launchedAt, now)) continue;
+    if (!id || seen.has(id) || !isProductHuntUrl(post.url) || !inWindow(launchedAt, now)) continue;
     seen.add(id);
 
     const founder = resolveFounder(post.makers as RawMaker[] | null);
@@ -44,6 +56,10 @@ export function buildPool(raw: RawPost[], now: Date): Product[] {
       upvotes: int(post.votesCount),
       totalComments: int(post.commentsCount),
       makerComments: makerMissing ? 0 : int(post.makerReplies),
+      dailyRank: optInt(post.dailyRank),
+      weeklyRank: optInt(post.weeklyRank),
+      reviewsCount: int(post.reviewsCount),
+      reviewsRating: typeof post.reviewsRating === "number" && post.reviewsCount ? Math.round((post.reviewsRating as number) * 10) / 10 : null,
       founder,
       topics: topicNames(post.topics),
       flags,
