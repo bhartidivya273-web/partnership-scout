@@ -562,4 +562,21 @@ describe("pipeline: outreach always greets the founder shown on the card", () =>
     await run(first.deps);
     expect(ai.calls.outreach).toBe(before);
   });
+
+  it("saved outreach whose greeting names a different maker than the card shows is discarded and rewritten", async () => {
+    const good = setup({}, fakePH(30, { makePost: (i) => rawPost(i, { makers: makers("Howard", "Chen") }) }));
+    await run(good.deps);
+    const saved = await good.store.get<Bundle>("ps:v2:pool:last");
+    // Simulate a bundle written by older code: the first card's message greets someone else.
+    const first = Object.keys(saved!.outreach)[0];
+    saved!.outreach[first] = { ...saved!.outreach[first], message: saved!.outreach[first].message.replace("Hi Howard,", "Hi Wrongname,") };
+    await good.store.set("ps:v2:pool:last", saved);
+    await good.store.del("ps:v2:pool:fresh");
+    const store = createMemoryStore();
+    await store.set("ps:v2:pool:last", saved);
+    const r = await run({ ...good.deps, store, fetchImpl: fakePH(30, { failWith: 503 }).fetchImpl });
+    expect(r.source).toBe("saved");
+    expect(r.items.some((i) => i.outreach.message.includes("Wrongname"))).toBe(false);
+    expect(r.items.every((i) => i.outreach.message.startsWith("Hi Howard,"))).toBe(true);
+  });
 });

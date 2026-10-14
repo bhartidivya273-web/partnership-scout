@@ -17,7 +17,7 @@ import { rateFit } from "./fit";
 import { GeminiError, type GeminiFn } from "./gemini";
 import { cleanProductText } from "./input";
 import { logEvent } from "./log";
-import { writeOutreach, type Outreach } from "./outreach";
+import { greetingOk, writeOutreach, type Outreach } from "./outreach";
 import { buildPool } from "./pool";
 import { isPreset, normaliseWeights, PRESETS, rankByPriority, DEFAULT_PRESET, type FitInfo, type PresetName, type PriorityKey } from "./priority";
 import { fetchFeaturedPosts, ProductHuntError } from "./producthunt";
@@ -284,11 +284,15 @@ export async function runScout(input: ScoutInput, deps: Deps, emit: (e: ScoutEve
 
   // ----- outreach for the shown products only
   const outreach = new Map<string, Outreach>();
-  if (bundle.productText === productText) for (const p of top) if (bundle.outreach?.[p.id]) outreach.set(p.id, bundle.outreach[p.id]);
+  // Reused outreach (saved with the pool, or cached) is only trusted if its greeting still matches the
+  // founder shown on the card; otherwise it is written again.
+  const reusable = (p: (typeof top)[number], o: Outreach | undefined | null): o is Outreach =>
+    Boolean(o?.message) && greetingOk(o!.message, p.founder.visibleMakers[0]?.name ?? null);
+  if (bundle.productText === productText) for (const p of top) if (reusable(p, bundle.outreach?.[p.id])) outreach.set(p.id, bundle.outreach[p.id]);
   let missing = top.filter((p) => !outreach.has(p.id));
   if (missing.length > 0) {
     const cached = await s.mget<Outreach>(missing.map((p) => outKey(deps.model, textHash, p.id, p.founder.visibleMakers[0]?.name)));
-    missing.forEach((p, i) => cached[i]?.message && outreach.set(p.id, cached[i] as Outreach));
+    missing.forEach((p, i) => reusable(p, cached[i]) && outreach.set(p.id, cached[i] as Outreach));
     missing = missing.filter((p) => !outreach.has(p.id));
   }
   if (missing.length > 0) {

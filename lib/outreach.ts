@@ -41,6 +41,17 @@ const FIELDS = Object.keys(LIMITS) as Field[];
 
 const firstName = (full: string | null) => (full ? full.trim().split(/\s+/)[0] : null);
 
+/**
+ * A greeting may use only the first name of the founder shown on the card (or a neutral word): never an
+ * invented name, and never a different maker than the one displayed. Also used when saved outreach is
+ * reused, because Product Hunt can list the makers in a different order on the next fetch.
+ */
+export function greetingOk(message: string, founderName: string | null): boolean {
+  const greeting = message.match(/^(?:[Hh]i|[Hh]ello|[Hh]ey)[,\s]+([A-Z][a-z]+)/);
+  if (!greeting) return true;
+  return ["There", "Team", "Folks"].includes(greeting[1]) || greeting[1] === firstName(founderName);
+}
+
 export type OutreachCheck = { value: Omit<Outreach, "source"> | null; problems: string[] };
 
 /** `source` is everything the model saw for this product plus Kavya's own description. */
@@ -77,12 +88,7 @@ export function checkOutreach(raw: unknown, source: string, input: { name: strin
   if (input.fit === "weak" && v.connection && !/limited|little|loose|light[- ]touch|not (?:a )?(?:direct|obvious)|modest/i.test(v.connection)) {
     problems.push("connection:weak_fit_not_honest");
   }
-  // A greeting may use only the founder's real first name (or a neutral word): never an invented one.
-  const greeting = v.message.match(/^(?:[Hh]i|[Hh]ello|[Hh]ey)[,\s]+([A-Z][a-z]+)/);
-  if (greeting) {
-    const ok = ["There", "Team", "Folks"].includes(greeting[1]) || greeting[1] === firstName(input.founderName);
-    if (!ok) problems.push("message:invented_name");
-  }
+  if (!greetingOk(v.message, input.founderName)) problems.push("message:invented_name");
   return { value: problems.length === 0 ? { ...v } : null, problems };
 }
 
